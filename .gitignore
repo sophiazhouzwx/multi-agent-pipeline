@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+
+# Virtualenv / uv
+.venv/
+.python-version
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Runtime artifacts
+runs.db
+runs.db-journal
+*.log
+.logfire/
+
+# OS
+Thumbs.db
