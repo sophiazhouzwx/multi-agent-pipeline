@@ -25,10 +25,11 @@ from rich.table import Table  # noqa: E402
 
 from src.agents.answerer import answer_question  # noqa: E402
 from src.agents.locator import locate  # noqa: E402
+from src.agents.planner import plan_change  # noqa: E402
 from src.agents.router import classify_intent  # noqa: E402
 from src.catalog.indexer import index_repo, index_stats, load_catalog  # noqa: E402
 from src.hitl.gate import AUTO_CONFIRM_ENV, show_and_confirm  # noqa: E402
-from src.schemas import Intent  # noqa: E402
+from src.schemas import ChangePlan, Intent  # noqa: E402
 
 app = typer.Typer(
     help="Multi-agent repo-aware coding assistant",
@@ -50,6 +51,23 @@ def _format_intent(intent: Intent) -> str:
         f"[bold]Canonical request:[/bold] {intent.canonical_request}\n"
         f"[bold]Rationale:[/bold] {intent.rationale}"
     )
+
+
+def _format_plan(plan: ChangePlan) -> str:
+    lines = [f"[bold]Summary:[/bold] {plan.summary}", ""]
+    if plan.affected_files:
+        lines.append("[bold]Affected files:[/bold]")
+        for path in plan.affected_files:
+            lines.append(f"  - {path}")
+        lines.append("")
+    else:
+        lines.append("[yellow]No affected files (planner returned empty plan).[/yellow]")
+        lines.append("")
+    if plan.steps:
+        lines.append("[bold]Steps:[/bold]")
+        for i, step in enumerate(plan.steps, 1):
+            lines.append(f"  {i}. {step}")
+    return "\n".join(lines)
 
 
 def _read_file(path: Path) -> str:
@@ -134,6 +152,123 @@ def ask(
     if auto_confirm:
         os.environ[AUTO_CONFIRM_ENV] = "1"
     exit_code = asyncio.run(_ask_async(repo, question, rebuild_index))
+    raise typer.Exit(exit_code)
+
+
+async def _implement_async(repo: Path, request: str, rebuild: bool) -> int:
+    repo = repo.resolve()
+
+    # ---- Stage 1: catalog --------------------------------------------------
+    console.rule("[bold cyan]Stage 1: Catalog[/bold cyan]")
+    prior = load_catalog(repo)
+    try:
+        catalog = await index_repo(repo, force_rebuild=rebuild)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        return 1
+
+    stats = index_stats(prior, catalog)
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("total")
+    table.add_column("added")
+    table.add_column("modified")
+    table.add_column("unchanged")
+    table.add_row(
+        str(stats["total"]),
+        str(stats["added"]),
+        str(stats["modified"]),
+        str(stats["unchanged"]),
+    )
+    console.print(table)
+
+    # ---- Stage 2: intent + Gate #1 ----------------------------------------
+    console.rule("[bold cyan]Stage 2: Intent[/bold cyan]")
+    intent = await classify_intent(request)
+    # User invoked `implement` — pin the kind even if Router thought it was a question.
+    if intent.kind != "implement":
+        console.print(
+            f"[yellow]Router classified as '{intent.kind}'. Forcing kind=implement "
+            "because the user invoked `implement`.[/yellow]"
+        )
+        intent = intent.model_copy(update={"kind": "implement"})
+    decision = show_and_confirm("intent", _format_intent(intent))
+    if decision.action == "abort":
+        console.print("[red]Aborted at intent gate.[/red]")
+        return 2
+    if decision.action == "edit":
+        revised = f"{request}\n\nUser correction: {decision.edited_payload}"
+        intent = await classify_intent(revised)
+        intent = intent.model_copy(update={"kind": "implement"})
+        console.print("[green]Re-classified after edit:[/green]")
+        console.print(_format_intent(intent))
+
+    # ---- Stage 3: locate --------------------------------------------------
+    console.rule("[bold cyan]Stage 3: Locate[/bold cyan]")
+    located = await locate(catalog, intent)
+    if not located.paths:
+        console.print("[yellow]No files matched the request.[/yellow]")
+        return 3
+    console.print(f"[bold]Located:[/bold] {', '.join(located.paths)}")
+    console.print(f"[dim]Reasoning:[/dim] {located.reasoning}")
+
+    # ---- Stage 4: plan + Gate #2 ------------------------------------------
+    console.rule("[bold cyan]Stage 4: Plan[/bold cyan]")
+    file_contents = {p: _read_file(repo / p) for p in located.paths}
+    plan = await plan_change(intent, located, file_contents)
+    decision = show_and_confirm("plan", _format_plan(plan))
+    if decision.action == "abort":
+        console.print("[red]Aborted at plan gate.[/red]")
+        return 4
+    if decision.action == "edit":
+        # Re-run planner with the user's correction appended to the intent.
+        revised_intent = intent.model_copy(
+            update={
+                "canonical_request": (
+                    f"{intent.canonical_request}\n\n"
+                    f"User correction: {decision.edited_payload}"
+                )
+            }
+        )
+        plan = await plan_change(revised_intent, located, file_contents)
+        console.print("[green]Re-planned after edit:[/green]")
+        console.print(_format_plan(plan))
+
+    # ---- Pause: Steps 8-10 not yet wired ----------------------------------
+    console.rule("[bold green]Plan approved[/bold green]")
+    console.print(
+        Panel(
+            "[bold]Plan locked in.[/bold]\n\n"
+            "Code generation (Step 8), cross-tier verification (Step 9), and "
+            "git-aware apply with sandbox tests (Step 10) are not yet implemented.\n\n"
+            "When those land, this point will continue automatically into the "
+            "Generator -> Verifier -> Gate #3 -> Applier sequence.",
+            title="[bold yellow]Pause point[/bold yellow]",
+            border_style="yellow",
+        )
+    )
+    return 0
+
+
+@app.command()
+def implement(
+    repo: Path = typer.Argument(..., exists=True, file_okay=False, help="Target git repo"),
+    request: str = typer.Argument(..., help="The change you want made"),
+    rebuild_index: bool = typer.Option(
+        False, "--rebuild-index", help="Discard cached catalog and re-summarize every file."
+    ),
+    auto_confirm: bool = typer.Option(
+        False, "--yes", "-y", help="Skip HITL gates (sets GATE_AUTO_CONFIRM=1 for this run)."
+    ),
+) -> None:
+    """Plan a change to a repo. Today: stops after Gate #2 (plan approval).
+
+    Future (Steps 8-10): the approved plan becomes generated code, gets
+    reviewed by the verifier panel, and is applied on a working git branch
+    after Gate #3.
+    """
+    if auto_confirm:
+        os.environ[AUTO_CONFIRM_ENV] = "1"
+    exit_code = asyncio.run(_implement_async(repo, request, rebuild_index))
     raise typer.Exit(exit_code)
 
 

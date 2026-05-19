@@ -1,7 +1,7 @@
 # AGENT_CATALOG.md
 
-> generated 2026-05-19T20:04:06+00:00 by multi-agent-pipeline
-> repo: `/Users/c270744/multi-agent-pipeline` @ `576f72df`
+> generated 2026-05-19T20:05:58+00:00 by multi-agent-pipeline
+> repo: `/Users/c270744/multi-agent-pipeline` @ `6483326c`
 > Agents read this instead of crawling the repo. One anchor per file; only re-summarized when content changes.
 
 _35 files indexed._
