@@ -1,7 +1,7 @@
 # AGENT_CATALOG.md
 
-> generated 2026-05-19T19:48:17+00:00 by multi-agent-pipeline
-> repo: `/Users/c270744/multi-agent-pipeline` @ `fe93f73f`
+> generated 2026-05-19T20:04:06+00:00 by multi-agent-pipeline
+> repo: `/Users/c270744/multi-agent-pipeline` @ `576f72df`
 > Agents read this instead of crawling the repo. One anchor per file; only re-summarized when content changes.
 
 _35 files indexed._
@@ -61,7 +61,7 @@ tests/
 
 ### `README.md`
 
-**Purpose:** Project documentation and quickstart guide for a PydanticAI multi-agent pipeline that routes repository requests through specialized Claude models with human-in-the-loop gates and persistent catalog-b
+**Purpose:** Provides documentation and setup instructions for a multi-agent coding assistant pipeline that routes repository questions and implementation requests through typed Claude agents with human-in-the-loo
 
 ### `docs/PLAN-v1-coding-benchmark.md`
 
@@ -160,7 +160,7 @@ tests/
 
 ### `src/cli.py`
 
-**Purpose:** Provides the command-line interface for a multi-agent repository analysis system with an `ask` subcommand that orchestrates catalog indexing, intent classification, file location, and question answeri
+**Purpose:** Defines the Typer CLI entry point with an `ask` subcommand that orchestrates a four-stage multi-agent pipeline (catalog, intent classification, file location, answer generation) for repo-aware Q&A.
 
 **Public symbols:**
 - `def ask(repo: Path=typer.Argument(..., exists=True, file_okay=False, help='Target git repo'), question: str=typer.Argument(..., help='Your question about the repo'), rebuild_index: bool=typer.Option(False, '--rebuild-index', help='Discard cached catalog and re-summarize every file.'), auto_confirm: bool=typer.Option(False, '--yes', '-y', help='Skip HITL gates (sets GATE_AUTO_CONFIRM=1 for this run).')) -> None` — Ask a question about a repo and get an answer with file citations.

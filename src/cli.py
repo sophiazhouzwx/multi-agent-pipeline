@@ -6,22 +6,29 @@ Subcommands (planned): ``implement`` (Steps 7-10), ``report`` (Step 13).
 
 from __future__ import annotations
 
-import asyncio
-import os
-from pathlib import Path
-
-import typer
+# Load .env BEFORE importing any module that constructs a PydanticAI Agent,
+# because Agent(...) reads ANTHROPIC_API_KEY at construction time (i.e. on
+# import). Without this, running the CLI from a shell that doesn't have the
+# env vars exported errors out before main() ever runs.
 from dotenv import load_dotenv
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
 
-from src.agents.answerer import answer_question
-from src.agents.locator import locate
-from src.agents.router import classify_intent
-from src.catalog.indexer import index_repo, index_stats, load_catalog
-from src.hitl.gate import AUTO_CONFIRM_ENV, show_and_confirm
-from src.schemas import Intent
+load_dotenv()
+
+import asyncio  # noqa: E402
+import os  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import typer  # noqa: E402
+from rich.console import Console  # noqa: E402
+from rich.panel import Panel  # noqa: E402
+from rich.table import Table  # noqa: E402
+
+from src.agents.answerer import answer_question  # noqa: E402
+from src.agents.locator import locate  # noqa: E402
+from src.agents.router import classify_intent  # noqa: E402
+from src.catalog.indexer import index_repo, index_stats, load_catalog  # noqa: E402
+from src.hitl.gate import AUTO_CONFIRM_ENV, show_and_confirm  # noqa: E402
+from src.schemas import Intent  # noqa: E402
 
 app = typer.Typer(
     help="Multi-agent repo-aware coding assistant",
@@ -124,7 +131,6 @@ def ask(
     ),
 ) -> None:
     """Ask a question about a repo and get an answer with file citations."""
-    load_dotenv()
     if auto_confirm:
         os.environ[AUTO_CONFIRM_ENV] = "1"
     exit_code = asyncio.run(_ask_async(repo, question, rebuild_index))

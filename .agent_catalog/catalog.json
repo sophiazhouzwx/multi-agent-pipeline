@@ -1,12 +1,12 @@
 {
   "repo_path": "/Users/c270744/multi-agent-pipeline",
-  "git_commit": "fe93f73f8b0a0ad98dfd1124945ecac7137263fa",
+  "git_commit": "576f72df5cf5a38af2f602cf22c22367af67334e",
   "files": [
     {
       "path": "README.md",
-      "purpose": "Project documentation and quickstart guide for a PydanticAI multi-agent pipeline that routes repository requests through specialized Claude models with human-in-the-loop gates and persistent catalog-b",
+      "purpose": "Provides documentation and setup instructions for a multi-agent coding assistant pipeline that routes repository questions and implementation requests through typed Claude agents with human-in-the-loo",
       "public_symbols": [],
-      "content_hash": "f8e4e4b874ec62a6acf86dc12382cf650fad1d0bd374d1adb37cf739a20c80b2"
+      "content_hash": "07a91afd60a749a3ad1e965ea64e847979b47404d4ea8be619555b8266aa35ee"
     },
     {
       "path": "docs/PLAN-v1-coding-benchmark.md",
@@ -203,7 +203,7 @@
     },
     {
       "path": "src/cli.py",
-      "purpose": "Provides the command-line interface for a multi-agent repository analysis system with an `ask` subcommand that orchestrates catalog indexing, intent classification, file location, and question answeri",
+      "purpose": "Defines the Typer CLI entry point with an `ask` subcommand that orchestrates a four-stage multi-agent pipeline (catalog, intent classification, file location, answer generation) for repo-aware Q&A.",
       "public_symbols": [
         {
           "name": "ask",
@@ -211,7 +211,7 @@
           "summary": "Ask a question about a repo and get an answer with file citations."
         }
       ],
-      "content_hash": "935801edbf4a8d6722a3e65a74c6fcd7409e37a182e789f50e7c558621ad5de6"
+      "content_hash": "abf3f28d94583bb3f6614e00417c0ac70412878304b9e010fd9421b539af90db"
     },
     {
       "path": "src/config.py",
