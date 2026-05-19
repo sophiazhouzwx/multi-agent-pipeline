@@ -65,4 +65,4 @@ uv run streamlit run dashboard/app.py
 
 ## Status
 
-Currently at: **Step 3 complete — repo-aware schemas + sandboxed executor (20 tests passing).**
+Currently at: **Step 6 complete — Q&A path end-to-end. `ask <repo> "<question>"` works against any git repo (42 tests passing, validated live against this project).**

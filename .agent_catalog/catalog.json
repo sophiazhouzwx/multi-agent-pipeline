@@ -1,0 +1,677 @@
+{
+  "repo_path": "/Users/c270744/multi-agent-pipeline",
+  "git_commit": "fe93f73f8b0a0ad98dfd1124945ecac7137263fa",
+  "files": [
+    {
+      "path": "README.md",
+      "purpose": "Project documentation and quickstart guide for a PydanticAI multi-agent pipeline that routes repository requests through specialized Claude models with human-in-the-loop gates and persistent catalog-b",
+      "public_symbols": [],
+      "content_hash": "f8e4e4b874ec62a6acf86dc12382cf650fad1d0bd374d1adb37cf739a20c80b2"
+    },
+    {
+      "path": "docs/PLAN-v1-coding-benchmark.md",
+      "purpose": "Outlines the complete implementation plan for a multi-agent coding benchmark pipeline using PydanticAI to orchestrate three Claude tiers with evaluator loops, sandboxed execution, adaptive routing, an",
+      "public_symbols": [],
+      "content_hash": "9db9415b3e07d7e2bd9a7347a5b9b381e21723d9b0d789aab673cb0e9c88e309"
+    },
+    {
+      "path": "docs/PLAN.md",
+      "purpose": "Establishes the architectural design and workflow for a multi-agent, repo-aware coding assistant that uses persistent catalog indexing and human-in-the-loop gates to safely implement changes.",
+      "public_symbols": [],
+      "content_hash": "418b49105e1095e1ecaee262e487e73d3732c6b56c5600ada22fcf621347e017"
+    },
+    {
+      "path": "pyproject.toml",
+      "purpose": "Defines project metadata, dependencies, and development requirements for the multi-agent pipeline application.",
+      "public_symbols": [],
+      "content_hash": "af58f85fae5abf5238968ecd0abf025497e6745e40c5b64d0884c99513d02009"
+    },
+    {
+      "path": "src/__init__.py",
+      "purpose": "Marks the src directory as a Python package and serves as the entry point for package initialization.",
+      "public_symbols": [],
+      "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/agents/__init__.py",
+      "purpose": "Exports public agent classes and utilities for easy import access across the agents module.",
+      "public_symbols": [],
+      "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/agents/answerer.py",
+      "purpose": "Generates structured answers to user questions about code repositories by processing file excerpts and catalog information using an LLM agent.",
+      "public_symbols": [
+        {
+          "name": "answer_question",
+          "signature": "async def answer_question(intent: Intent, catalog: Catalog, located: LocatedFiles, file_contents: dict[str, str]) -> Answer",
+          "summary": "Produce a typed Answer for the user's question."
+        }
+      ],
+      "content_hash": "1e639f89626746154d4481b3d773585643b39dc3ac26c258ec2140bb9d1aa43f"
+    },
+    {
+      "path": "src/agents/locator.py",
+      "purpose": "Identifies the 1-5 most relevant files in a codebase catalog for a given user intent using Claude Sonnet, with hallucination filtering to ensure only valid paths are returned.",
+      "public_symbols": [
+        {
+          "name": "locate",
+          "signature": "async def locate(catalog: Catalog, intent: Intent) -> LocatedFiles",
+          "summary": "Return the 1-5 files most relevant to ``intent``."
+        }
+      ],
+      "content_hash": "de2e3a5cace7636a7743cd69e47f2db08e8f0addb73704e6cb5afca93d8fe4d8"
+    },
+    {
+      "path": "src/agents/router.py",
+      "purpose": "Classifies user messages into question or implementation request intents and rewrites them in canonical form for downstream processing.",
+      "public_symbols": [
+        {
+          "name": "classify_intent",
+          "signature": "async def classify_intent(user_message: str) -> Intent",
+          "summary": "Return the model's typed Intent for a free-form user message."
+        }
+      ],
+      "content_hash": "5d8f45e4ce96c1b896f82e2c3fd84276eaf569c821ea69afb08215832c378d09"
+    },
+    {
+      "path": "src/benchmarks/__init__.py",
+      "purpose": "Marks the benchmarks directory as a Python package for organizing and importing benchmark tests.",
+      "public_symbols": [],
+      "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/catalog/__init__.py",
+      "purpose": "Designates the catalog directory as a Python package and exposes its public API.",
+      "public_symbols": [],
+      "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/catalog/catalog_md.py",
+      "purpose": "Converts a typed Catalog object into human-readable AGENT_CATALOG.md markdown documentation with file tree, purposes, and public symbols.",
+      "public_symbols": [
+        {
+          "name": "render_catalog_md",
+          "signature": "def render_catalog_md(catalog: Catalog) -> str",
+          "summary": "Render a Catalog as AGENT_CATALOG.md text."
+        }
+      ],
+      "content_hash": "31b688dd6510982f71ca873c3c058c116fa85c2d399e03bca962b5f672183bf2"
+    },
+    {
+      "path": "src/catalog/indexer.py",
+      "purpose": "Orchestrates building or incrementally updating a repository's file catalog by validating git status, reusing unchanged file summaries, queuing new/modified files for LLM-based purpose generation, and",
+      "public_symbols": [
+        {
+          "name": "sidecar_path",
+          "signature": "def sidecar_path(repo_path: Path) -> Path",
+          "summary": ""
+        },
+        {
+          "name": "md_path",
+          "signature": "def md_path(repo_path: Path) -> Path",
+          "summary": ""
+        },
+        {
+          "name": "ensure_git_repo",
+          "signature": "def ensure_git_repo(repo_path: Path) -> str",
+          "summary": "Return the current HEAD sha, or raise ValueError if not a git repo."
+        },
+        {
+          "name": "load_catalog",
+          "signature": "def load_catalog(repo_path: Path) -> Catalog | None",
+          "summary": ""
+        },
+        {
+          "name": "save_catalog",
+          "signature": "def save_catalog(catalog: Catalog) -> None",
+          "summary": ""
+        },
+        {
+          "name": "index_repo",
+          "signature": "async def index_repo(repo_path: Path, max_files: int | None=None, force_rebuild: bool=False) -> Catalog",
+          "summary": "Build or incrementally update the catalog for ``repo_path``."
+        },
+        {
+          "name": "index_stats",
+          "signature": "def index_stats(prior: Catalog | None, current: Catalog) -> dict[str, int]",
+          "summary": "Diff stats useful for the CLI to print after an index run."
+        }
+      ],
+      "content_hash": "9759d75e5bfd001f5f6a923b210f6aeb72b6734a1f5d30dfe5a0181a2c183f6f"
+    },
+    {
+      "path": "src/catalog/summarizer.py",
+      "purpose": "Generates concise one-line purpose summaries for source files using Claude, with bounded concurrency for batch processing and content-hash-based caching integration.",
+      "public_symbols": [
+        {
+          "name": "make_summarizer_agent",
+          "signature": "def make_summarizer_agent() -> Agent",
+          "summary": "Construct a fresh summarizer agent. Tests can use ``agent.override``."
+        },
+        {
+          "name": "summarize_file",
+          "signature": "async def summarize_file(path_rel: str, source: str) -> str",
+          "summary": "Return a 1-line purpose for a single file."
+        },
+        {
+          "name": "summarize_batch",
+          "signature": "async def summarize_batch(items: list[tuple[str, str]], concurrency: int=5) -> list[str]",
+          "summary": "Summarize many files with bounded concurrency. Preserves input order."
+        }
+      ],
+      "content_hash": "bf8788168366238bfa4b64556e3dcc3eb279b154f0a5e56bfe3d43b42d2498ac"
+    },
+    {
+      "path": "src/catalog/symbols.py",
+      "purpose": "Extracts public symbols (functions, classes, constants) from source files with deterministic signatures and docstrings for catalog indexing.",
+      "public_symbols": [
+        {
+          "name": "extract_python_symbols",
+          "signature": "def extract_python_symbols(source: str) -> list[CatalogSymbol]",
+          "summary": "Return public top-level functions/classes/constants from a Python source."
+        },
+        {
+          "name": "extract_symbols",
+          "signature": "def extract_symbols(path: Path, source: str) -> list[CatalogSymbol]",
+          "summary": "Dispatch by extension. Returns [] for unsupported languages."
+        }
+      ],
+      "content_hash": "8f1df0ceba534d16ab5898652f4579b51cfcc7a3e782b5a0b0006511cf4f5f81"
+    },
+    {
+      "path": "src/catalog/walker.py",
+      "purpose": "Walks a repository to discover indexable files while respecting `.gitignore` and exclusion rules, and provides hashing utilities for content deduplication.",
+      "public_symbols": [
+        {
+          "name": "iter_files",
+          "signature": "def iter_files(repo_path: Path, max_files: int | None=None) -> Iterator[Path]",
+          "summary": "Yield absolute paths of indexable files under ``repo_path``."
+        },
+        {
+          "name": "sha256_of",
+          "signature": "def sha256_of(path: Path) -> str",
+          "summary": "SHA-256 hex digest of a file's bytes."
+        },
+        {
+          "name": "sha256_of_text",
+          "signature": "def sha256_of_text(text: str) -> str",
+          "summary": ""
+        }
+      ],
+      "content_hash": "04014788b1f64adfd54e80a9a16729034c693cb660db6c79e02c87511f2ec619"
+    },
+    {
+      "path": "src/cli.py",
+      "purpose": "Provides the command-line interface for a multi-agent repository analysis system with an `ask` subcommand that orchestrates catalog indexing, intent classification, file location, and question answeri",
+      "public_symbols": [
+        {
+          "name": "ask",
+          "signature": "def ask(repo: Path=typer.Argument(..., exists=True, file_okay=False, help='Target git repo'), question: str=typer.Argument(..., help='Your question about the repo'), rebuild_index: bool=typer.Option(False, '--rebuild-index', help='Discard cached catalog and re-summarize every file.'), auto_confirm: bool=typer.Option(False, '--yes', '-y', help='Skip HITL gates (sets GATE_AUTO_CONFIRM=1 for this run).')) -> None",
+          "summary": "Ask a question about a repo and get an answer with file citations."
+        }
+      ],
+      "content_hash": "935801edbf4a8d6722a3e65a74c6fcd7409e37a182e789f50e7c558621ad5de6"
+    },
+    {
+      "path": "src/config.py",
+      "purpose": "Centralizes all configurable parameters including model assignments, optimization thresholds, sandbox limits, database paths, and token pricing across the project.",
+      "public_symbols": [
+        {
+          "name": "price_for",
+          "signature": "def price_for(model_id: str, kind: str) -> float",
+          "summary": "USD per 1M tokens for ``model_id`` / ``kind`` (input | output | cached)."
+        }
+      ],
+      "content_hash": "e4d414026146b76472e7046068dc5606c11d759b18339bc76f8ec98d5dcefbe3"
+    },
+    {
+      "path": "src/execution/__init__.py",
+      "purpose": "Provides the public API for execution-related functionality in the package.",
+      "public_symbols": [],
+      "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/execution/sandbox.py",
+      "purpose": "Executes untrusted Python code and pytest test suites in resource-limited subprocesses with CPU, memory, process count, and wall-clock timeout protections.",
+      "public_symbols": [
+        {
+          "name": "run_python",
+          "signature": "async def run_python(code: str, test_code: str='', timeout_s: int=SANDBOX_TIMEOUT_S, mem_mb: int=SANDBOX_MEM_MB) -> ExecutionResult",
+          "summary": "Run ``code`` (and any ``test_code``) inside a sandboxed subprocess."
+        },
+        {
+          "name": "run_pytest",
+          "signature": "async def run_pytest(repo_path: Path, test_target: str | None=None, timeout_s: int=SANDBOX_TIMEOUT_S * 6) -> ExecutionResult",
+          "summary": "Run ``pytest`` inside ``repo_path``."
+        }
+      ],
+      "content_hash": "a3b84bb225e08db69f30a616bee12907eb876a8b963499a054aa56b91baf3d60"
+    },
+    {
+      "path": "src/hitl/__init__.py",
+      "purpose": "Provides the public API entry point for the HITL (Human-In-The-Loop) module by exposing key classes and functions.",
+      "public_symbols": [],
+      "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/hitl/gate.py",
+      "purpose": "Provides interactive human confirmation gates in the pipeline where users can approve, edit, or abort agent outputs before proceeding.",
+      "public_symbols": [
+        {
+          "name": "show_and_confirm",
+          "signature": "def show_and_confirm(gate: GateName, payload_display: str, *, console: Console | None=None, ask_fn: AskFn=_default_ask, edit_fn: EditFn=_default_edit) -> GateDecision",
+          "summary": "Display ``payload_display`` and prompt the user for c/e/a."
+        }
+      ],
+      "content_hash": "a391eaea701957d7d7d4b7609b8f4c0ae7cecef36fcbb2c644bb6f8d3c1d2d6a"
+    },
+    {
+      "path": "src/metrics/__init__.py",
+      "purpose": "Exports metrics module components and utilities for monitoring and measuring application performance.",
+      "public_symbols": [],
+      "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/pipeline/__init__.py",
+      "purpose": "Initializes the pipeline package and exports its public API for data processing workflows.",
+      "public_symbols": [],
+      "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "src/schemas.py",
+      "purpose": "Defines all Pydantic message schemas for inter-agent communication, providing typed contracts for code generation pipelines and repository-aware coding workflows.",
+      "public_symbols": [
+        {
+          "name": "Task",
+          "signature": "class Task(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "CodeSolution",
+          "signature": "class CodeSolution(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "ExecutionResult",
+          "signature": "class ExecutionResult(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "Evaluation",
+          "signature": "class Evaluation(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "VerificationVote",
+          "signature": "class VerificationVote(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "VerificationPanel",
+          "signature": "class VerificationPanel(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "TaskComplexity",
+          "signature": "class TaskComplexity(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "TokenUsage",
+          "signature": "class TokenUsage(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "PipelineRun",
+          "signature": "class PipelineRun(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "Repo",
+          "signature": "class Repo(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "Request",
+          "signature": "class Request(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "Intent",
+          "signature": "class Intent(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "CatalogSymbol",
+          "signature": "class CatalogSymbol(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "CatalogFile",
+          "signature": "class CatalogFile(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "Catalog",
+          "signature": "class Catalog(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "LocatedFiles",
+          "signature": "class LocatedFiles(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "Answer",
+          "signature": "class Answer(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "FileEdit",
+          "signature": "class FileEdit(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "ChangePlan",
+          "signature": "class ChangePlan(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "ChangeProposal",
+          "signature": "class ChangeProposal(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "GateDecision",
+          "signature": "class GateDecision(BaseModel)",
+          "summary": ""
+        },
+        {
+          "name": "RepoRun",
+          "signature": "class RepoRun(BaseModel)",
+          "summary": ""
+        }
+      ],
+      "content_hash": "03f6f7aa9eec34d8049badba2b3cdeb80897871f41c53571c09264762ed9db56"
+    },
+    {
+      "path": "src/storage/__init__.py",
+      "purpose": "Exposes the storage module's public API and classes for data persistence and retrieval.",
+      "public_symbols": [],
+      "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/__init__.py",
+      "purpose": "Marks the tests directory as a Python package to enable test discovery and imports.",
+      "public_symbols": [],
+      "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/test_agents_router_locator.py",
+      "purpose": "Provides hermetic unit tests for the Intent Router and Locator agents using PydanticAI's TestModel to verify intent classification and source file location without live API calls.",
+      "public_symbols": [
+        {
+          "name": "test_router_returns_typed_intent",
+          "signature": "async def test_router_returns_typed_intent()",
+          "summary": ""
+        },
+        {
+          "name": "test_router_implement_kind",
+          "signature": "async def test_router_implement_kind()",
+          "summary": ""
+        },
+        {
+          "name": "test_locator_returns_paths_from_catalog",
+          "signature": "async def test_locator_returns_paths_from_catalog()",
+          "summary": ""
+        },
+        {
+          "name": "test_locator_filters_hallucinated_paths",
+          "signature": "async def test_locator_filters_hallucinated_paths()",
+          "summary": "If the model returns a path that isn't in the catalog, it must be dropped."
+        }
+      ],
+      "content_hash": "e7c808424dd4e0d28836ce4eaf5e121e63875c6e827c040a10cd010c3d1c6573"
+    },
+    {
+      "path": "tests/test_answerer.py",
+      "purpose": "Verifies that the Answerer agent correctly generates typed answers to questions about codebase implementation details using test fixtures and mocked model outputs.",
+      "public_symbols": [
+        {
+          "name": "test_answerer_returns_typed_answer",
+          "signature": "async def test_answerer_returns_typed_answer()",
+          "summary": ""
+        }
+      ],
+      "content_hash": "1fa2a2525b37286b3982d1325a32aa057dd30b1e6f83a2ca2c33ef65cf314aa8"
+    },
+    {
+      "path": "tests/test_catalog_unit.py",
+      "purpose": "Provides hermetic unit tests for the catalog's deterministic components—file walking, symbol extraction, and markdown rendering—without requiring LLM integration.",
+      "public_symbols": [
+        {
+          "name": "test_iter_files_respects_gitignore_and_defaults",
+          "signature": "def test_iter_files_respects_gitignore_and_defaults(tmp_path: Path)",
+          "summary": ""
+        },
+        {
+          "name": "test_iter_files_max_files",
+          "signature": "def test_iter_files_max_files(tmp_path: Path)",
+          "summary": ""
+        },
+        {
+          "name": "test_hashing_is_stable",
+          "signature": "def test_hashing_is_stable(tmp_path: Path)",
+          "summary": ""
+        },
+        {
+          "name": "test_python_symbols_basic",
+          "signature": "def test_python_symbols_basic()",
+          "summary": ""
+        },
+        {
+          "name": "test_python_symbols_skips_invalid_source",
+          "signature": "def test_python_symbols_skips_invalid_source()",
+          "summary": ""
+        },
+        {
+          "name": "test_extract_symbols_unsupported_extension",
+          "signature": "def test_extract_symbols_unsupported_extension(tmp_path: Path)",
+          "summary": ""
+        },
+        {
+          "name": "test_render_catalog_md_smoke",
+          "signature": "def test_render_catalog_md_smoke()",
+          "summary": ""
+        }
+      ],
+      "content_hash": "5afb70c50af51b168395eb81b87031d949eedfa07149a554de0304c9db5a7ae2"
+    },
+    {
+      "path": "tests/test_hitl_gate.py",
+      "purpose": "Tests the HITL gate's prompt interaction logic by injecting mock input/output functions to verify confirm, abort, and edit decision flows.",
+      "public_symbols": [
+        {
+          "name": "test_gate_confirm",
+          "signature": "def test_gate_confirm()",
+          "summary": ""
+        },
+        {
+          "name": "test_gate_abort",
+          "signature": "def test_gate_abort()",
+          "summary": ""
+        },
+        {
+          "name": "test_gate_edit_returns_payload",
+          "signature": "def test_gate_edit_returns_payload()",
+          "summary": ""
+        },
+        {
+          "name": "test_gate_empty_edit_reprompts_then_confirms",
+          "signature": "def test_gate_empty_edit_reprompts_then_confirms()",
+          "summary": "Empty edits don't crash — the loop reprompts until a real choice."
+        },
+        {
+          "name": "test_gate_unrecognised_choice_reprompts",
+          "signature": "def test_gate_unrecognised_choice_reprompts()",
+          "summary": ""
+        }
+      ],
+      "content_hash": "cad26d5cbec8e6db124af4a9b1f41cf4633b3bc66280830501b3d34ae63a1ea6"
+    },
+    {
+      "path": "tests/test_indexer.py",
+      "purpose": "Verifies the indexer's incremental update mechanism by testing catalog generation, unchanged-file caching, selective re-summarization, and AST-based symbol extraction across git repository state chang",
+      "public_symbols": [
+        {
+          "name": "test_first_index_builds_catalog_and_sidecar",
+          "signature": "async def test_first_index_builds_catalog_and_sidecar(tmp_path: Path)",
+          "summary": ""
+        },
+        {
+          "name": "test_unchanged_repo_uses_zero_llm_calls",
+          "signature": "async def test_unchanged_repo_uses_zero_llm_calls(tmp_path: Path)",
+          "summary": "The whole point: re-running the indexer on an unchanged repo must"
+        },
+        {
+          "name": "test_modified_file_triggers_resummary",
+          "signature": "async def test_modified_file_triggers_resummary(tmp_path: Path)",
+          "summary": ""
+        },
+        {
+          "name": "test_refuses_non_git_directory",
+          "signature": "async def test_refuses_non_git_directory(tmp_path: Path)",
+          "summary": ""
+        },
+        {
+          "name": "test_new_file_added_picked_up",
+          "signature": "async def test_new_file_added_picked_up(tmp_path: Path)",
+          "summary": ""
+        }
+      ],
+      "content_hash": "c6457bce67afda407af6e800238c9eacfd9e0bfa89b045c86973386445fd040e"
+    },
+    {
+      "path": "tests/test_sandbox.py",
+      "purpose": "Verifies the sandboxed Python executor's ability to run and classify code execution results, errors, and timeouts without external dependencies.",
+      "public_symbols": [
+        {
+          "name": "test_happy_path",
+          "signature": "async def test_happy_path()",
+          "summary": ""
+        },
+        {
+          "name": "test_assertion_failure_classified",
+          "signature": "async def test_assertion_failure_classified()",
+          "summary": ""
+        },
+        {
+          "name": "test_syntax_error_classified",
+          "signature": "async def test_syntax_error_classified()",
+          "summary": ""
+        },
+        {
+          "name": "test_runtime_error_classified",
+          "signature": "async def test_runtime_error_classified()",
+          "summary": ""
+        },
+        {
+          "name": "test_wall_clock_timeout",
+          "signature": "async def test_wall_clock_timeout()",
+          "summary": ""
+        },
+        {
+          "name": "test_stdout_captured",
+          "signature": "async def test_stdout_captured()",
+          "summary": ""
+        },
+        {
+          "name": "test_run_pytest_against_self",
+          "signature": "async def test_run_pytest_against_self(tmp_path: Path)",
+          "summary": "Smoke test for run_pytest: create a tiny inline test and run it."
+        },
+        {
+          "name": "test_run_pytest_failure_propagates",
+          "signature": "async def test_run_pytest_failure_propagates(tmp_path: Path)",
+          "summary": ""
+        }
+      ],
+      "content_hash": "77309eff82cad491f51051f90b5af34d70381adc5f2b4bcea3081c1a5f1663a1"
+    },
+    {
+      "path": "tests/test_schemas.py",
+      "purpose": "Validates serialization, deserialization, and constraint enforcement for inter-agent communication schemas used throughout the pipeline.",
+      "public_symbols": [
+        {
+          "name": "test_task_roundtrip",
+          "signature": "def test_task_roundtrip()",
+          "summary": ""
+        },
+        {
+          "name": "test_evaluation_rejects_out_of_range",
+          "signature": "def test_evaluation_rejects_out_of_range()",
+          "summary": ""
+        },
+        {
+          "name": "test_verification_panel_roundtrip",
+          "signature": "def test_verification_panel_roundtrip()",
+          "summary": ""
+        },
+        {
+          "name": "test_task_complexity_tier_constrained",
+          "signature": "def test_task_complexity_tier_constrained()",
+          "summary": ""
+        },
+        {
+          "name": "test_pipeline_run_full_roundtrip",
+          "signature": "def test_pipeline_run_full_roundtrip()",
+          "summary": ""
+        },
+        {
+          "name": "test_confidence_range",
+          "signature": "def test_confidence_range()",
+          "summary": ""
+        }
+      ],
+      "content_hash": "98609e7fd00d1a49fb53f84757fd1c3c5450603c1f727203f7197673dfdc1b8c"
+    },
+    {
+      "path": "tests/test_schemas_v2.py",
+      "purpose": "Validates serialization/deserialization and constraint enforcement for the v2 schema models used in repository-aware operations.",
+      "public_symbols": [
+        {
+          "name": "test_request_roundtrip",
+          "signature": "def test_request_roundtrip()",
+          "summary": ""
+        },
+        {
+          "name": "test_catalog_roundtrip",
+          "signature": "def test_catalog_roundtrip()",
+          "summary": ""
+        },
+        {
+          "name": "test_change_proposal_roundtrip",
+          "signature": "def test_change_proposal_roundtrip()",
+          "summary": ""
+        },
+        {
+          "name": "test_gate_decision_action_constrained",
+          "signature": "def test_gate_decision_action_constrained()",
+          "summary": ""
+        },
+        {
+          "name": "test_gate_decision_with_edit",
+          "signature": "def test_gate_decision_with_edit()",
+          "summary": ""
+        },
+        {
+          "name": "test_repo_run_minimum_fields",
+          "signature": "def test_repo_run_minimum_fields()",
+          "summary": ""
+        }
+      ],
+      "content_hash": "c431ece6abc0f705c51cf891f3fbb137eeed4f9eed8c0f2aa316d4674fd126f4"
+    }
+  ]
+}

@@ -17,19 +17,19 @@ from pathlib import Path
 # ANTHROPIC_BASE_URL proxy). Tomorrow: change one string to swap providers.
 GENERATOR_MODEL = "anthropic:claude-opus-4-6"
 EVALUATOR_MODEL = "anthropic:claude-sonnet-4-6"
-ROUTER_MODEL = "anthropic:claude-haiku-4-5"
-JUDGE_MODEL = "anthropic:claude-haiku-4-5"
+ROUTER_MODEL = "anthropic:claude-haiku-4-5@20251001"
+JUDGE_MODEL = "anthropic:claude-haiku-4-5@20251001"
 
 # Verifier panel: parallel fan-out across these models.
 VERIFIER_MODELS: tuple[str, ...] = (
     "anthropic:claude-opus-4-6",
     "anthropic:claude-sonnet-4-6",
-    "anthropic:claude-haiku-4-5",
+    "anthropic:claude-haiku-4-5@20251001",
 )
 
 # Adaptive routing: complexity-tier -> generator model.
 ROUTER_TIER_TO_MODEL: dict[str, str] = {
-    "easy": "anthropic:claude-haiku-4-5",
+    "easy": "anthropic:claude-haiku-4-5@20251001",
     "medium": "anthropic:claude-sonnet-4-6",
     "hard": "anthropic:claude-opus-4-6",
 }
@@ -58,7 +58,7 @@ DB_URL = f"sqlite:///{DB_PATH}"
 PRICE_PER_MTOK: dict[str, dict[str, float]] = {
     "anthropic:claude-opus-4-6": {"input": 15.00, "output": 75.00, "cached": 1.50},
     "anthropic:claude-sonnet-4-6": {"input": 3.00, "output": 15.00, "cached": 0.30},
-    "anthropic:claude-haiku-4-5": {"input": 1.00, "output": 5.00, "cached": 0.10},
+    "anthropic:claude-haiku-4-5@20251001": {"input": 1.00, "output": 5.00, "cached": 0.10},
     "openai:gpt-4o": {"input": 2.50, "output": 10.00, "cached": 1.25},
     "google-gla:gemini-2.0-flash": {"input": 0.10, "output": 0.40, "cached": 0.025},
 }

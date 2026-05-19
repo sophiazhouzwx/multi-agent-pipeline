@@ -132,6 +132,16 @@ class Catalog(BaseModel):
     files: list[CatalogFile] = Field(default_factory=list)
 
 
+class LocatedFiles(BaseModel):
+    paths: list[str]
+    reasoning: str
+
+
+class Answer(BaseModel):
+    body: str
+    cited_files: list[str] = Field(default_factory=list)
+
+
 class FileEdit(BaseModel):
     path: str
     new_content: str
