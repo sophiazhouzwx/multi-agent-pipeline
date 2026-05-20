@@ -32,7 +32,8 @@ from src.agents.planner import plan_change  # noqa: E402
 from src.agents.router import classify_intent  # noqa: E402
 from src.catalog.indexer import index_repo, index_stats, load_catalog  # noqa: E402
 from src.hitl.gate import AUTO_CONFIRM_ENV, show_and_confirm  # noqa: E402
-from src.schemas import ChangePlan, ChangeProposal, Intent  # noqa: E402
+from src.pipeline.verifier_panel import verify_proposal  # noqa: E402
+from src.schemas import ChangePlan, ChangeProposal, Intent, PanelVerdict  # noqa: E402
 
 app = typer.Typer(
     help="Multi-agent repo-aware coding assistant",
@@ -56,6 +57,14 @@ class _Flag:
 
 
 _show_edits_flag = _Flag(False)
+_skip_verify_flag = _Flag(False)
+
+
+_VERDICT_STYLES = {
+    "approve": ("green", "✓"),
+    "reject": ("red", "✗"),
+    "suggest": ("yellow", "?"),
+}
 
 
 @app.callback()
@@ -86,6 +95,34 @@ def _diff_stats(old: str, new: str) -> tuple[int, int]:
         elif tag == "insert":
             added += j2 - j1
     return added, removed
+
+
+def _format_panel_verdict(verdict: PanelVerdict) -> Table:
+    color, glyph = _VERDICT_STYLES.get(verdict.consensus_verdict, ("white", "·"))
+    table = Table(
+        show_header=True,
+        header_style="bold",
+        title=(
+            f"Verifier panel: [{color}]{glyph} {verdict.consensus_verdict.upper()}[/{color}] "
+            f"(confidence {verdict.consensus_confidence:.2f}, "
+            f"agreement {verdict.agreement_score:.2f})"
+        ),
+    )
+    table.add_column("model", style="cyan")
+    table.add_column("verdict")
+    table.add_column("conf", justify="right")
+    table.add_column("reasoning")
+    for review in verdict.reviews:
+        rcolor, rglyph = _VERDICT_STYLES.get(review.verdict, ("white", "·"))
+        # Strip the "anthropic:" prefix for compact display.
+        short = review.model_id.split(":", 1)[-1]
+        table.add_row(
+            short,
+            f"[{rcolor}]{rglyph} {review.verdict}[/{rcolor}]",
+            f"{review.confidence:.2f}",
+            review.reasoning[:120] + ("..." if len(review.reasoning) > 120 else ""),
+        )
+    return table
 
 
 def _format_proposal_table(
@@ -322,16 +359,31 @@ async def _implement_async(repo: Path, request: str, rebuild: bool) -> int:
                 )
             )
 
-    # ---- Pause: Steps 9-10 not yet wired ---------------------------------
-    console.rule("[bold green]Proposal generated[/bold green]")
+    # ---- Stage 6: verify (cross-tier panel) ------------------------------
+    if _skip_verify_flag.get(False):
+        console.rule("[dim]Stage 6: Verify — skipped (--no-verify)[/dim]")
+    else:
+        console.rule("[bold cyan]Stage 6: Verify[/bold cyan]")
+        panel_verdict = await verify_proposal(intent, proposal, existing_contents)
+        console.print(_format_panel_verdict(panel_verdict))
+        console.print(f"[dim]Judge:[/dim] {panel_verdict.judge_reasoning}")
+        if panel_verdict.consensus_verdict == "reject":
+            console.print(
+                "[red]Verifier panel rejected the proposal. Aborting before "
+                "apply.[/red]"
+            )
+            return 6
+
+    # ---- Pause: Step 10 not yet wired -------------------------------------
+    console.rule("[bold green]Proposal verified[/bold green]")
     console.print(
         Panel(
-            f"[bold]{len(proposal.edits)} edit(s) ready.[/bold]\n\n"
-            "Cross-tier verification (Step 9), HITL Gate #3, and git-aware "
-            "apply with sandbox tests (Step 10) are not yet implemented.\n\n"
-            "When those land, the proposal flows automatically into the "
-            "Verifier panel and (on Gate #3 confirm) the Applier writes the "
-            "files on a new branch.",
+            f"[bold]{len(proposal.edits)} edit(s) ready to apply.[/bold]\n\n"
+            "Git-aware apply with HITL Gate #3, sandbox tests, and automatic "
+            "rollback (Step 10) is not yet implemented.\n\n"
+            "When it lands, this point will continue automatically into the "
+            "Applier: `git checkout -b agent/<slug>`, write files, run "
+            "`pytest`, commit on success or `git reset --hard` on failure.",
             title="[bold yellow]Pause point[/bold yellow]",
             border_style="yellow",
         )
@@ -352,16 +404,21 @@ def implement(
     show_edits: bool = typer.Option(
         False, "--show-edits", help="Print full proposed file contents (verbose)."
     ),
+    no_verify: bool = typer.Option(
+        False, "--no-verify", help="Skip the cross-tier verifier panel (saves 4 LLM calls)."
+    ),
 ) -> None:
-    """Plan and generate a change to a repo. Today: stops after Stage 5 (Generator).
+    """Plan, generate, and verify a change to a repo. Today: stops after Stage 6 (Verifier).
 
-    Future (Steps 9-10): the proposal is reviewed by the cross-tier verifier
-    panel, displayed at HITL Gate #3 with a unified diff, and applied on a
-    working git branch with sandbox tests + automatic rollback.
+    Future (Step 10): on `approve` or `suggest` consensus, proceeds to HITL
+    Gate #3 with a unified diff preview, then the Applier writes the files
+    on a working git branch (`agent/<slug>`), runs the repo's tests in the
+    sandbox, and either commits or rolls back.
     """
     if auto_confirm:
         os.environ[AUTO_CONFIRM_ENV] = "1"
     _show_edits_flag.set(show_edits)
+    _skip_verify_flag.set(no_verify)
     exit_code = asyncio.run(_implement_async(repo, request, rebuild_index))
     raise typer.Exit(exit_code)
 

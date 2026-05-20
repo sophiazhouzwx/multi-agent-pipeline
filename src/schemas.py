@@ -19,6 +19,7 @@ ErrorCategory = Literal["syntax", "runtime", "assertion", "timeout", "none"]
 RequestKind = Literal["question", "implement"]
 GateName = Literal["intent", "plan", "apply"]
 GateAction = Literal["confirm", "edit", "abort"]
+Verdict = Literal["approve", "reject", "suggest"]
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +160,34 @@ class ChangeProposal(BaseModel):
     edits: list[FileEdit]
 
 
+class ProposalReview(BaseModel):
+    """One verifier's independent review of a ChangeProposal."""
+
+    model_id: str = ""  # filled by the panel after the call returns
+    verdict: Verdict
+    confidence: float = Field(ge=0.0, le=1.0)
+    reasoning: str
+    suggestions: list[str] = Field(default_factory=list)
+
+
+class JudgeDecision(BaseModel):
+    """Judge agent's consensus call across multiple ProposalReview objects."""
+
+    consensus_verdict: Verdict
+    consensus_confidence: float = Field(ge=0.0, le=1.0)
+    reasoning: str
+
+
+class PanelVerdict(BaseModel):
+    """Full output of the verifier panel: reviews + judged consensus."""
+
+    reviews: list[ProposalReview]
+    consensus_verdict: Verdict
+    consensus_confidence: float = Field(ge=0.0, le=1.0)
+    agreement_score: float = Field(ge=0.0, le=1.0)
+    judge_reasoning: str
+
+
 class GateDecision(BaseModel):
     gate: GateName
     action: GateAction
@@ -170,7 +199,7 @@ class RepoRun(BaseModel):
     intent: Intent
     plan: ChangePlan | None = None
     proposal: ChangeProposal | None = None
-    verification: VerificationPanel | None = None
+    verification: PanelVerdict | None = None
     applied_commit: str | None = None
     test_result: ExecutionResult | None = None
     gates: list[GateDecision] = Field(default_factory=list)

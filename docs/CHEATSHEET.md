@@ -63,7 +63,7 @@ uv run python -m src.cli ask /Users/c270744/multi-agent-pipeline \
 ## 3. Implementation requests — `implement` *(plan + generate ready; apply lands at Step 10)*
 
 ```bash
-# Plan + generate a change (stops after Stage 5 today; full apply coming at Step 10)
+# Plan, generate, and verify a change (stops after Stage 6; apply coming at Step 10)
 uv run python -m src.cli implement <repo-path> "<your change request>"
 
 # Auto-confirm both gates and skip the prompt at every stage
@@ -71,6 +71,9 @@ uv run python -m src.cli implement <repo-path> "<your change request>" -y
 
 # Print full proposed file contents (otherwise you only see the +/- summary)
 uv run python -m src.cli implement <repo-path> "<your change request>" -y --show-edits
+
+# Skip the verifier panel (saves 4 LLM calls — useful when iterating fast)
+uv run python -m src.cli implement <repo-path> "<your change request>" -y --no-verify
 ```
 
 Example:
@@ -87,7 +90,8 @@ What you'll see:
 3. **Stage 3 — Locate** — Sonnet picks 1-5 relevant files.
 4. **Stage 4 — Plan (Gate #2)** — Opus drafts a ChangePlan. Confirm/edit/abort.
 5. **Stage 5 — Generate** — Opus emits a `FileEdit` per affected file. Table of `path / status / +added / -removed / rationale`. With `--show-edits`, full new contents are printed too.
-6. **Pause** — verifier panel + apply land at Steps 9-10.
+6. **Stage 6 — Verify** — Opus + Sonnet + Haiku review the proposal in parallel; Haiku judge picks consensus. Table shows `model / verdict / confidence / reasoning` + judge reasoning. On `reject` consensus the run aborts before apply. Skip with `--no-verify`.
+7. **Pause** — git apply + sandbox tests + rollback land at Step 10.
 
 ---
 
@@ -167,6 +171,8 @@ The pipeline never writes to your repo without an explicit final HITL gate (Gate
 | Re-index after 1 file changed | 1 Haiku | ~$0.0002 |
 | Single `ask` (after catalog warm) | 1 Haiku + 1 Sonnet + 1 Opus | ~$0.02-0.10 |
 | Single `implement` plan (after catalog warm) | 1 Haiku + 1 Sonnet + 1 Opus | ~$0.02-0.10 |
+| Single `implement` with verifier panel | + 1 Opus + 1 Sonnet + 2 Haiku | ~$0.05-0.20 total |
+| Same with `--no-verify` | only the 4 base calls | ~$0.02-0.10 |
 
 Cost scales with question/file size, not with repeat use of an unchanged catalog.
 
