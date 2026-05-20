@@ -74,7 +74,19 @@ uv run python -m src.cli implement <repo-path> "<your change request>" -y --show
 
 # Skip the verifier panel (saves 4 LLM calls — useful when iterating fast)
 uv run python -m src.cli implement <repo-path> "<your change request>" -y --no-verify
+
+# Force Opus 4.6 for the generator (skip the complexity router from Step 14)
+uv run python -m src.cli implement <repo-path> "<your change request>" -y --no-route
 ```
+
+### Reports
+
+```bash
+# Print a metrics summary of every run in runs.db (Step 13)
+uv run python -m src.cli report
+```
+
+Shows: runs by kind × status, latency p50/p95, gate confirm/edit/abort rates, per-model verdict distribution, apply pass rate.
 
 Example:
 
