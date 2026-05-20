@@ -15,27 +15,47 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import asyncio  # noqa: E402
+import difflib  # noqa: E402
 import os  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 import typer  # noqa: E402
 from rich.console import Console  # noqa: E402
 from rich.panel import Panel  # noqa: E402
+from rich.syntax import Syntax  # noqa: E402
 from rich.table import Table  # noqa: E402
 
 from src.agents.answerer import answer_question  # noqa: E402
+from src.agents.generator import generate_changes  # noqa: E402
 from src.agents.locator import locate  # noqa: E402
 from src.agents.planner import plan_change  # noqa: E402
 from src.agents.router import classify_intent  # noqa: E402
 from src.catalog.indexer import index_repo, index_stats, load_catalog  # noqa: E402
 from src.hitl.gate import AUTO_CONFIRM_ENV, show_and_confirm  # noqa: E402
-from src.schemas import ChangePlan, Intent  # noqa: E402
+from src.schemas import ChangePlan, ChangeProposal, Intent  # noqa: E402
 
 app = typer.Typer(
     help="Multi-agent repo-aware coding assistant",
     no_args_is_help=True,
 )
 console = Console()
+
+
+class _Flag:
+    """Tiny container so command-level options can reach the async helpers
+    without threading them through every signature."""
+
+    def __init__(self, default: bool = False) -> None:
+        self._value = default
+
+    def set(self, v: bool) -> None:
+        self._value = v
+
+    def get(self, default: bool = False) -> bool:
+        return self._value if self._value is not None else default
+
+
+_show_edits_flag = _Flag(False)
 
 
 @app.callback()
@@ -51,6 +71,44 @@ def _format_intent(intent: Intent) -> str:
         f"[bold]Canonical request:[/bold] {intent.canonical_request}\n"
         f"[bold]Rationale:[/bold] {intent.rationale}"
     )
+
+
+def _diff_stats(old: str, new: str) -> tuple[int, int]:
+    """Return (lines_added, lines_removed) between old and new content."""
+    matcher = difflib.SequenceMatcher(None, old.splitlines(), new.splitlines())
+    added = removed = 0
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "replace":
+            removed += i2 - i1
+            added += j2 - j1
+        elif tag == "delete":
+            removed += i2 - i1
+        elif tag == "insert":
+            added += j2 - j1
+    return added, removed
+
+
+def _format_proposal_table(
+    proposal: ChangeProposal, existing_contents: dict[str, str]
+) -> Table:
+    table = Table(show_header=True, header_style="bold", title="Proposed edits")
+    table.add_column("path", style="cyan")
+    table.add_column("status")
+    table.add_column("+", justify="right", style="green")
+    table.add_column("-", justify="right", style="red")
+    table.add_column("rationale")
+    for edit in proposal.edits:
+        old = existing_contents.get(edit.path, "")
+        added, removed = _diff_stats(old, edit.new_content)
+        status = "new" if edit.path not in existing_contents else "modify"
+        table.add_row(
+            edit.path,
+            status,
+            str(added),
+            str(removed),
+            edit.rationale[:80] + ("..." if len(edit.rationale) > 80 else ""),
+        )
+    return table
 
 
 def _format_plan(plan: ChangePlan) -> str:
@@ -233,15 +291,47 @@ async def _implement_async(repo: Path, request: str, rebuild: bool) -> int:
         console.print("[green]Re-planned after edit:[/green]")
         console.print(_format_plan(plan))
 
-    # ---- Pause: Steps 8-10 not yet wired ----------------------------------
-    console.rule("[bold green]Plan approved[/bold green]")
+    # ---- Stage 5: generate -----------------------------------------------
+    console.rule("[bold cyan]Stage 5: Generate[/bold cyan]")
+    if not plan.affected_files:
+        console.print("[yellow]Plan has no affected files — nothing to generate.[/yellow]")
+        return 5
+    # Read whatever EXISTING files the plan touches (NEW files won't exist yet).
+    existing_contents: dict[str, str] = {}
+    for path in plan.affected_files:
+        abs_path = repo / path
+        if abs_path.exists():
+            existing_contents[path] = _read_file(abs_path)
+
+    proposal = await generate_changes(intent, plan, existing_contents)
+    if not proposal.edits:
+        console.print("[red]Generator produced no edits.[/red]")
+        return 5
+
+    console.print(_format_proposal_table(proposal, existing_contents))
+
+    if _show_edits_flag.get(False):
+        console.rule("[dim]Full edit contents (--show-edits)[/dim]")
+        for edit in proposal.edits:
+            lang = "python" if edit.path.endswith(".py") else "text"
+            console.print(
+                Panel(
+                    Syntax(edit.new_content, lang, theme="ansi_dark", line_numbers=True),
+                    title=f"[bold]{edit.path}[/bold] — {edit.rationale}",
+                    border_style="dim",
+                )
+            )
+
+    # ---- Pause: Steps 9-10 not yet wired ---------------------------------
+    console.rule("[bold green]Proposal generated[/bold green]")
     console.print(
         Panel(
-            "[bold]Plan locked in.[/bold]\n\n"
-            "Code generation (Step 8), cross-tier verification (Step 9), and "
-            "git-aware apply with sandbox tests (Step 10) are not yet implemented.\n\n"
-            "When those land, this point will continue automatically into the "
-            "Generator -> Verifier -> Gate #3 -> Applier sequence.",
+            f"[bold]{len(proposal.edits)} edit(s) ready.[/bold]\n\n"
+            "Cross-tier verification (Step 9), HITL Gate #3, and git-aware "
+            "apply with sandbox tests (Step 10) are not yet implemented.\n\n"
+            "When those land, the proposal flows automatically into the "
+            "Verifier panel and (on Gate #3 confirm) the Applier writes the "
+            "files on a new branch.",
             title="[bold yellow]Pause point[/bold yellow]",
             border_style="yellow",
         )
@@ -259,15 +349,19 @@ def implement(
     auto_confirm: bool = typer.Option(
         False, "--yes", "-y", help="Skip HITL gates (sets GATE_AUTO_CONFIRM=1 for this run)."
     ),
+    show_edits: bool = typer.Option(
+        False, "--show-edits", help="Print full proposed file contents (verbose)."
+    ),
 ) -> None:
-    """Plan a change to a repo. Today: stops after Gate #2 (plan approval).
+    """Plan and generate a change to a repo. Today: stops after Stage 5 (Generator).
 
-    Future (Steps 8-10): the approved plan becomes generated code, gets
-    reviewed by the verifier panel, and is applied on a working git branch
-    after Gate #3.
+    Future (Steps 9-10): the proposal is reviewed by the cross-tier verifier
+    panel, displayed at HITL Gate #3 with a unified diff, and applied on a
+    working git branch with sandbox tests + automatic rollback.
     """
     if auto_confirm:
         os.environ[AUTO_CONFIRM_ENV] = "1"
+    _show_edits_flag.set(show_edits)
     exit_code = asyncio.run(_implement_async(repo, request, rebuild_index))
     raise typer.Exit(exit_code)
 

@@ -1,16 +1,17 @@
 # AGENT_CATALOG.md
 
-> generated 2026-05-19T20:05:58+00:00 by multi-agent-pipeline
-> repo: `/Users/c270744/multi-agent-pipeline` @ `6483326c`
+> generated 2026-05-19T20:16:12+00:00 by multi-agent-pipeline
+> repo: `/Users/c270744/multi-agent-pipeline` @ `d1cef628`
 > Agents read this instead of crawling the repo. One anchor per file; only re-summarized when content changes.
 
-_35 files indexed._
+_38 files indexed._
 
 ## Tree
 
 ```
 README.md
 docs/
+  CHEATSHEET.md
   PLAN-v1-coding-benchmark.md
   PLAN.md
 pyproject.toml
@@ -20,6 +21,7 @@ src/
     __init__.py
     answerer.py
     locator.py
+    planner.py
     router.py
   benchmarks/
     __init__.py
@@ -52,6 +54,7 @@ tests/
   test_catalog_unit.py
   test_hitl_gate.py
   test_indexer.py
+  test_planner.py
   test_sandbox.py
   test_schemas.py
   test_schemas_v2.py
@@ -61,7 +64,11 @@ tests/
 
 ### `README.md`
 
-**Purpose:** Provides documentation and setup instructions for a multi-agent coding assistant pipeline that routes repository questions and implementation requests through typed Claude agents with human-in-the-loo
+**Purpose:** Multi-agent coding assistant pipeline that routes repository requests through specialized Claude agents with human-in-the-loop confirmations, persisting decisions to a catalog and database.
+
+### `docs/CHEATSHEET.md`
+
+**Purpose:** Provides quick reference commands and setup instructions for using the multi-agent pipeline CLI, including examples, troubleshooting, and cost estimates.
 
 ### `docs/PLAN-v1-coding-benchmark.md`
 
@@ -96,6 +103,13 @@ tests/
 
 **Public symbols:**
 - `async def locate(catalog: Catalog, intent: Intent) -> LocatedFiles` — Return the 1-5 files most relevant to ``intent``.
+
+### `src/agents/planner.py`
+
+**Purpose:** Generates a high-level, user-reviewable change plan from an intent and relevant source files before code generation begins.
+
+**Public symbols:**
+- `async def plan_change(intent: Intent, located: LocatedFiles, file_contents: dict[str, str]) -> ChangePlan` — Produce a typed ChangePlan from the user's request + located files.
 
 ### `src/agents/router.py`
 
@@ -160,10 +174,11 @@ tests/
 
 ### `src/cli.py`
 
-**Purpose:** Defines the Typer CLI entry point with an `ask` subcommand that orchestrates a four-stage multi-agent pipeline (catalog, intent classification, file location, answer generation) for repo-aware Q&A.
+**Purpose:** Provides the Typer CLI interface for the multi-agent pipeline with subcommands for asking questions about repositories and planning code changes.
 
 **Public symbols:**
 - `def ask(repo: Path=typer.Argument(..., exists=True, file_okay=False, help='Target git repo'), question: str=typer.Argument(..., help='Your question about the repo'), rebuild_index: bool=typer.Option(False, '--rebuild-index', help='Discard cached catalog and re-summarize every file.'), auto_confirm: bool=typer.Option(False, '--yes', '-y', help='Skip HITL gates (sets GATE_AUTO_CONFIRM=1 for this run).')) -> None` — Ask a question about a repo and get an answer with file citations.
+- `def implement(repo: Path=typer.Argument(..., exists=True, file_okay=False, help='Target git repo'), request: str=typer.Argument(..., help='The change you want made'), rebuild_index: bool=typer.Option(False, '--rebuild-index', help='Discard cached catalog and re-summarize every file.'), auto_confirm: bool=typer.Option(False, '--yes', '-y', help='Skip HITL gates (sets GATE_AUTO_CONFIRM=1 for this run).')) -> None` — Plan a change to a repo. Today: stops after Gate #2 (plan approval).
 
 ### `src/config.py`
 
@@ -290,6 +305,14 @@ tests/
 - `async def test_modified_file_triggers_resummary(tmp_path: Path)`
 - `async def test_refuses_non_git_directory(tmp_path: Path)`
 - `async def test_new_file_added_picked_up(tmp_path: Path)`
+
+### `tests/test_planner.py`
+
+**Purpose:** Tests that the Planner agent correctly generates typed change plans from intents and file contexts, including handling of impossible requests.
+
+**Public symbols:**
+- `async def test_planner_returns_typed_change_plan()`
+- `async def test_planner_can_signal_impossible_request()` — If the model can't make sense of the request, summary explains it and
 
 ### `tests/test_sandbox.py`
 

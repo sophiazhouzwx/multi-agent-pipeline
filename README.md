@@ -65,6 +65,6 @@ uv run streamlit run dashboard/app.py
 
 ## Status
 
-Currently at: **Step 7 complete — Q&A path + planning path. `ask` and `implement` subcommands work end-to-end; `implement` stops after Gate #2 until Step 10 wires the Generator/Applier (44 tests passing).**
+Currently at: **Step 8 complete — `implement` now plans AND generates code. Pipeline runs Stages 1-5 (catalog → intent → locate → plan → generate); apply lands at Step 10 (47 tests passing).**
 
 See [`docs/CHEATSHEET.md`](docs/CHEATSHEET.md) for all commands.

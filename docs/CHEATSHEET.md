@@ -60,24 +60,34 @@ uv run python -m src.cli ask /Users/c270744/multi-agent-pipeline \
 
 ---
 
-## 3. Implementation requests — `implement` *(planning ready; apply lands at Step 10)*
+## 3. Implementation requests — `implement` *(plan + generate ready; apply lands at Step 10)*
 
 ```bash
-# Plan a change (stops after Gate #2 today; full apply coming at Step 10)
+# Plan + generate a change (stops after Stage 5 today; full apply coming at Step 10)
 uv run python -m src.cli implement <repo-path> "<your change request>"
 
-# Auto-confirm both gates
+# Auto-confirm both gates and skip the prompt at every stage
 uv run python -m src.cli implement <repo-path> "<your change request>" -y
+
+# Print full proposed file contents (otherwise you only see the +/- summary)
+uv run python -m src.cli implement <repo-path> "<your change request>" -y --show-edits
 ```
 
 Example:
 
 ```bash
 uv run python -m src.cli implement /Users/c270744/multi-agent-pipeline \
-  "add a --verbose flag to the ask command that prints the full Router and Locator outputs"
+  "add a --verbose flag to the ask command that prints the full Router and Locator outputs" \
+  -y --show-edits
 ```
 
-You'll see Gates #1 (intent) and #2 (plan). After Gate #2 it prints the approved plan and exits — code generation + git apply land in Steps 8-10.
+What you'll see:
+1. **Stage 1 — Catalog** — load or refresh `AGENT_CATALOG.md`.
+2. **Stage 2 — Intent (Gate #1)** — Router's interpretation. Confirm/edit/abort.
+3. **Stage 3 — Locate** — Sonnet picks 1-5 relevant files.
+4. **Stage 4 — Plan (Gate #2)** — Opus drafts a ChangePlan. Confirm/edit/abort.
+5. **Stage 5 — Generate** — Opus emits a `FileEdit` per affected file. Table of `path / status / +added / -removed / rationale`. With `--show-edits`, full new contents are printed too.
+6. **Pause** — verifier panel + apply land at Steps 9-10.
 
 ---
 
