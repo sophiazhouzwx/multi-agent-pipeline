@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pydantic_ai import Agent
 
-from src.config import GENERATOR_MODEL
+from src.config import GENERATOR_MODEL, ROUTER_TIER_TO_MODEL
 from src.schemas import ChangePlan, ChangeProposal, FileEdit, Intent
 
 
@@ -50,11 +50,20 @@ _GENERATOR_INSTRUCTIONS = (
 )
 
 
-generator_agent = Agent(
-    GENERATOR_MODEL,
-    output_type=list[FileEdit],
-    instructions=_GENERATOR_INSTRUCTIONS,
-)
+def _make_generator(model_id: str) -> Agent:
+    return Agent(model_id, output_type=list[FileEdit], instructions=_GENERATOR_INSTRUCTIONS)
+
+
+# One cached agent per generator tier so the adaptive router can pick the
+# cheapest model without paying agent-construction cost on every call.
+_GENERATOR_AGENTS: dict[str, Agent] = {
+    model_id: _make_generator(model_id)
+    for model_id in {GENERATOR_MODEL, *ROUTER_TIER_TO_MODEL.values()}
+}
+
+# Back-compat singleton — the default if no tier is passed. Existing tests
+# override this one to stub the LLM.
+generator_agent: Agent = _GENERATOR_AGENTS[GENERATOR_MODEL]
 
 
 def _format_inputs(plan: ChangePlan, file_contents: dict[str, str]) -> str:
@@ -86,13 +95,21 @@ async def generate_changes(
     intent: Intent,
     plan: ChangePlan,
     file_contents: dict[str, str],
+    *,
+    model_id: str | None = None,
 ) -> ChangeProposal:
-    """Produce a typed ChangeProposal from an approved plan."""
+    """Produce a typed ChangeProposal from an approved plan.
+
+    ``model_id`` may be any value from ``config.ROUTER_TIER_TO_MODEL`` or
+    ``config.GENERATOR_MODEL``. If None, uses the default ``GENERATOR_MODEL``.
+    Unknown model_ids fall back to the default agent.
+    """
+    agent = _GENERATOR_AGENTS.get(model_id, generator_agent) if model_id else generator_agent
     prompt = (
         f"Canonical request: {intent.canonical_request}\n\n"
         f"{_format_inputs(plan, file_contents)}"
     )
-    result = await generator_agent.run(prompt)
+    result = await agent.run(prompt)
 
     # Defensive filter: only accept edits whose path is in the approved plan.
     allowed = set(plan.affected_files)

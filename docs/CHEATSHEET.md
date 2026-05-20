@@ -89,9 +89,12 @@ What you'll see:
 2. **Stage 2 — Intent (Gate #1)** — Router's interpretation. Confirm/edit/abort.
 3. **Stage 3 — Locate** — Sonnet picks 1-5 relevant files.
 4. **Stage 4 — Plan (Gate #2)** — Opus drafts a ChangePlan. Confirm/edit/abort.
-5. **Stage 5 — Generate** — Opus emits a `FileEdit` per affected file. Table of `path / status / +added / -removed / rationale`. With `--show-edits`, full new contents are printed too.
-6. **Stage 6 — Verify** — Opus + Sonnet + Haiku review the proposal in parallel; Haiku judge picks consensus. Table shows `model / verdict / confidence / reasoning` + judge reasoning. On `reject` consensus the run aborts before apply. Skip with `--no-verify`.
-7. **Stage 7 — Apply (Gate #3)** — unified diff preview of every edit. On confirm: new branch `agent/<slug>-<timestamp>` created, files written, commit made, `pytest` run inside the sandbox. **Test pass:** branch keeps the commit. **Test fail:** branch + commit destroyed, repo restored to its prior state bit-for-bit.
+5. **Stage 5a — Route** — Haiku classifies the request as easy/medium/hard and the orchestrator picks the cheapest adequate model (Haiku/Sonnet/Opus). Skip with `--no-route` to always use Opus.
+6. **Stage 5 — Generate** — chosen-tier model emits a `FileEdit` per affected file. Table of `path / status / +added / -removed / rationale`. With `--show-edits`, full new contents are printed too.
+7. **Stage 6 — Verify** — Opus + Sonnet + Haiku review the proposal in parallel; Haiku judge picks consensus. Table shows `model / verdict / confidence / reasoning` + judge reasoning. On `reject` consensus the run aborts before apply. Skip with `--no-verify`.
+8. **Stage 7 — Apply (Gate #3)** — unified diff preview of every edit. On confirm: new branch `agent/<slug>-<timestamp>` created, files written, commit made, `pytest` run inside the sandbox. **Test pass:** branch keeps the commit. **Test fail:** branch + commit destroyed, repo restored to its prior state bit-for-bit.
+9. **Stage 8 — Catalog refresh** — re-summarizes only the files that changed (Step 11). The next `ask` or `implement` reads the updated catalog.
+10. **Persisted** — full run + gates + reviews saved to `runs.db` (Step 12). View via `uv run python -m src.cli report`.
 
 **Apply preconditions:**
 - Target must be a git repo (refuses non-git dirs)

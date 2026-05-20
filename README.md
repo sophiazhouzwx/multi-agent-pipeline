@@ -65,6 +65,6 @@ uv run streamlit run dashboard/app.py
 
 ## Status
 
-Currently at: **Step 12 complete — full pipeline + post-apply catalog refresh + SQLite storage. Every `ask` and `implement` invocation persists a `RunRow` + child gate/review rows to `runs.db`, ready for Step 13 metrics queries (71 tests passing).**
+Currently at: **Step 14 complete — `report` subcommand for metrics; adaptive model routing (Haiku/Sonnet/Opus auto-picked per request complexity). Only the Streamlit dashboard (Step 15) remains (83 tests passing).**
 
 See [`docs/CHEATSHEET.md`](docs/CHEATSHEET.md) for all commands.

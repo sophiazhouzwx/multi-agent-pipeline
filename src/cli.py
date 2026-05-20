@@ -27,14 +27,22 @@ from rich.syntax import Syntax  # noqa: E402
 from rich.table import Table  # noqa: E402
 
 from src.agents.answerer import answer_question  # noqa: E402
+from src.agents.complexity_router import classify_complexity  # noqa: E402
 from src.agents.generator import generate_changes  # noqa: E402
 from src.agents.locator import locate  # noqa: E402
 from src.agents.planner import plan_change  # noqa: E402
 from src.agents.router import classify_intent  # noqa: E402
+from src.config import GENERATOR_MODEL, ROUTER_TIER_TO_MODEL  # noqa: E402
 from src.apply.applier import apply_changes  # noqa: E402
 from src.catalog.indexer import index_repo, index_stats, load_catalog  # noqa: E402
 from src.catalog.updater import refresh_catalog_after_apply  # noqa: E402
 from src.hitl.gate import AUTO_CONFIRM_ENV, show_and_confirm  # noqa: E402
+from src.metrics.report import (  # noqa: E402
+    _short as _short_model,
+    compute_report,
+    known_kinds,
+    known_statuses,
+)
 from src.pipeline.verifier_panel import verify_proposal  # noqa: E402
 from src.schemas import (  # noqa: E402
     ApplyResult,
@@ -69,6 +77,7 @@ class _Flag:
 
 _show_edits_flag = _Flag(False)
 _skip_verify_flag = _Flag(False)
+_no_route_flag = _Flag(False)
 
 
 _VERDICT_STYLES = {
@@ -425,6 +434,20 @@ async def _implement_async(repo: Path, request: str, rebuild: bool) -> int:
             console.print("[green]Re-planned after edit:[/green]")
             console.print(_format_plan(plan))
 
+        # ---- Stage 5a: route (adaptive tier) -----------------------------
+        if _no_route_flag.get(False):
+            chosen_model = GENERATOR_MODEL
+            console.rule(f"[dim]Stage 5a: Route — forced {_short_model(chosen_model)} (--no-route)[/dim]")
+        else:
+            console.rule("[bold cyan]Stage 5a: Route[/bold cyan]")
+            complexity = await classify_complexity(intent)
+            chosen_model = ROUTER_TIER_TO_MODEL.get(complexity.tier, GENERATOR_MODEL)
+            console.print(
+                f"[dim]Complexity:[/dim] [bold]{complexity.tier}[/bold] "
+                f"-> [cyan]{_short_model(chosen_model)}[/cyan]\n"
+                f"[dim]Reasoning:[/dim] {complexity.reasoning}"
+            )
+
         # ---- Stage 5: generate --------------------------------------------
         console.rule("[bold cyan]Stage 5: Generate[/bold cyan]")
         if not plan.affected_files:
@@ -437,7 +460,7 @@ async def _implement_async(repo: Path, request: str, rebuild: bool) -> int:
             if abs_path.exists():
                 existing_contents[path] = _read_file(abs_path)
 
-        proposal = await generate_changes(intent, plan, existing_contents)
+        proposal = await generate_changes(intent, plan, existing_contents, model_id=chosen_model)
         if not proposal.edits:
             console.print("[red]Generator produced no edits.[/red]")
             status = "errored"
@@ -578,6 +601,9 @@ def implement(
     no_verify: bool = typer.Option(
         False, "--no-verify", help="Skip the cross-tier verifier panel (saves 4 LLM calls)."
     ),
+    no_route: bool = typer.Option(
+        False, "--no-route", help="Force Opus 4.6 for the generator (skip the complexity router)."
+    ),
 ) -> None:
     """Plan, generate, verify, and apply a change to a repo.
 
@@ -596,8 +622,101 @@ def implement(
         os.environ[AUTO_CONFIRM_ENV] = "1"
     _show_edits_flag.set(show_edits)
     _skip_verify_flag.set(no_verify)
+    _no_route_flag.set(no_route)
     exit_code = asyncio.run(_implement_async(repo, request, rebuild_index))
     raise typer.Exit(exit_code)
+
+
+def _print_report(report: dict) -> None:
+    if report["total_runs"] == 0:
+        console.print("[yellow]No runs recorded yet — try `ask` or `implement` first.[/yellow]")
+        return
+
+    # ---- Headline -------------------------------------------------------
+    console.print(f"[bold]Total runs:[/bold] {report['total_runs']}")
+    console.print()
+
+    # ---- Runs by kind × status ------------------------------------------
+    by_ks = report["by_kind_status"]
+    kinds = known_kinds(by_ks.keys())
+    statuses = known_statuses(by_ks.keys())
+    table = Table(title="Runs by kind × status", show_header=True, header_style="bold")
+    table.add_column("status", style="cyan")
+    for k in kinds:
+        table.add_column(k, justify="right")
+    for s in statuses:
+        row = [s]
+        for k in kinds:
+            row.append(str(by_ks.get((k, s), 0)) or "-")
+        table.add_row(*row)
+    console.print(table)
+
+    # ---- Latency --------------------------------------------------------
+    lat = report["latency"]
+    console.print(
+        f"[bold]Latency (success runs):[/bold] "
+        f"p50={lat['p50']} ms, p95={lat['p95']} ms (n={lat['count']})"
+    )
+    console.print()
+
+    # ---- Gate actions ---------------------------------------------------
+    ga = report["gate_actions"]
+    if ga:
+        gtable = Table(title="HITL gate actions", show_header=True, header_style="bold")
+        gtable.add_column("gate", style="cyan")
+        gtable.add_column("confirm", justify="right", style="green")
+        gtable.add_column("edit", justify="right", style="yellow")
+        gtable.add_column("abort", justify="right", style="red")
+        for gate in ("intent", "plan", "apply"):
+            row_total = sum(ga.get((gate, a), 0) for a in ("confirm", "edit", "abort"))
+            if row_total == 0:
+                continue
+            gtable.add_row(
+                gate,
+                str(ga.get((gate, "confirm"), 0)),
+                str(ga.get((gate, "edit"), 0)),
+                str(ga.get((gate, "abort"), 0)),
+            )
+        console.print(gtable)
+
+    # ---- Verifier panel -------------------------------------------------
+    rv = report["reviewer_verdicts"]
+    if rv:
+        agree = report["panel_agreement"]
+        console.print(
+            f"[bold]Panel agreement:[/bold] mean={agree['mean']:.2f} (n={int(agree['n'])})"
+        )
+        models = sorted({m for m, _ in rv.keys()})
+        rtable = Table(title="Verifier verdicts by model", show_header=True, header_style="bold")
+        rtable.add_column("model", style="cyan")
+        rtable.add_column("approve", justify="right", style="green")
+        rtable.add_column("suggest", justify="right", style="yellow")
+        rtable.add_column("reject", justify="right", style="red")
+        for m in models:
+            rtable.add_row(
+                _short_model(m),
+                str(rv.get((m, "approve"), 0)),
+                str(rv.get((m, "suggest"), 0)),
+                str(rv.get((m, "reject"), 0)),
+            )
+        console.print(rtable)
+
+    # ---- Apply outcomes -------------------------------------------------
+    ao = report["apply_outcomes"]
+    if ao["attempted"] > 0:
+        console.print(
+            f"[bold]Apply outcomes:[/bold] "
+            f"attempted={ao['attempted']}, "
+            f"applied={ao['applied']}, "
+            f"rolled_back={ao['rolled_back']}, "
+            f"pass_rate={ao['pass_rate_pct']}%"
+        )
+
+
+@app.command()
+def report() -> None:
+    """Print a summary of past runs from runs.db."""
+    _print_report(compute_report())
 
 
 if __name__ == "__main__":
