@@ -20,7 +20,10 @@ _ANSWERER_INSTRUCTIONS = (
     "the answer, e.g. `src/foo.py:42`.\n"
     "- If the excerpts don't contain enough information to answer confidently, "
     "say so explicitly rather than guessing.\n"
-    "- Keep the answer focused: address exactly the question asked, no more.\n\n"
+    "- Keep the answer focused: address exactly the question asked, no more.\n"
+    "- If a 'Previous conversation' section is provided, treat the current "
+    "question as a follow-up. Stay consistent with prior turns but pivot to "
+    "new files / new code when the follow-up changes topic.\n\n"
     "Output fields:\n"
     "- body: the answer in clear prose with inline path citations.\n"
     "- cited_files: the list of file paths your answer actually referenced."
@@ -46,13 +49,33 @@ async def answer_question(
     catalog: Catalog,
     located: LocatedFiles,
     file_contents: dict[str, str],
+    *,
+    prior_turns: list[tuple[str, str]] | None = None,
 ) -> Answer:
-    """Produce a typed Answer for the user's question."""
-    prompt = (
-        f"Repo: {catalog.repo_path} @ {catalog.git_commit[:8]}\n"
-        f"Question: {intent.canonical_request}\n\n"
-        f"Locator reasoning: {located.reasoning}\n\n"
-        f"File excerpts:\n\n{_format_excerpts(file_contents)}"
-    )
+    """Produce a typed Answer for the user's question.
+
+    ``prior_turns`` carries earlier (question, answer) pairs from the same
+    conversation. When provided, the Answerer is told to treat the current
+    question as a follow-up and stay consistent with the discussion so far.
+    """
+    parts: list[str] = [
+        f"Repo: {catalog.repo_path} @ {catalog.git_commit[:8]}",
+    ]
+    if prior_turns:
+        parts.append("")
+        parts.append("Previous conversation:")
+        for i, (q, a) in enumerate(prior_turns, 1):
+            parts.append(f"\nTurn {i} — Q: {q}")
+            parts.append(f"Turn {i} — A: {a}")
+        parts.append("")
+        parts.append(f"Current (follow-up) question: {intent.canonical_request}")
+    else:
+        parts.append(f"Question: {intent.canonical_request}")
+    parts.append("")
+    parts.append(f"Locator reasoning: {located.reasoning}")
+    parts.append("")
+    parts.append(f"File excerpts:\n\n{_format_excerpts(file_contents)}")
+
+    prompt = "\n".join(parts)
     result = await answerer_agent.run(prompt)
     return result.output

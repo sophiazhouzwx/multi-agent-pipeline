@@ -17,12 +17,14 @@ load_dotenv()
 import asyncio  # noqa: E402
 import difflib  # noqa: E402
 import os  # noqa: E402
+import sys  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 import typer  # noqa: E402
 from rich.console import Console  # noqa: E402
 from rich.panel import Panel  # noqa: E402
+from rich.prompt import Prompt  # noqa: E402
 from rich.syntax import Syntax  # noqa: E402
 from rich.table import Table  # noqa: E402
 
@@ -45,7 +47,9 @@ from src.metrics.report import (  # noqa: E402
 )
 from src.pipeline.verifier_panel import verify_proposal  # noqa: E402
 from src.schemas import (  # noqa: E402
+    Answer,
     ApplyResult,
+    Catalog,
     ChangePlan,
     ChangeProposal,
     GateDecision,
@@ -246,6 +250,99 @@ def _read_file(path: Path) -> str:
         return ""
 
 
+def _can_prompt_follow_up() -> bool:
+    """True iff we're in an interactive TTY and not in auto-confirm mode."""
+    if os.environ.get(AUTO_CONFIRM_ENV) == "1":
+        return False
+    return sys.stdin.isatty()
+
+
+async def _follow_up_loop(
+    repo: Path,
+    catalog: Catalog,
+    original_intent: Intent,
+    first_answer: Answer,
+) -> None:
+    """After the initial answer, let the user keep asking follow-ups in the
+    same conversation. Each turn re-locates (in case the topic shifts) and
+    passes prior Q/A history to the Answerer for coherence. Each turn is
+    persisted as its own ask RunRow."""
+    prior_turns: list[tuple[str, str]] = [
+        (original_intent.canonical_request, first_answer.body)
+    ]
+
+    while True:
+        console.print()
+        try:
+            follow_up = Prompt.ask(
+                "[bold cyan]Follow-up question[/bold cyan] (empty to finish)",
+                default="",
+                show_default=False,
+            ).strip()
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[dim]Conversation ended (interrupted).[/dim]")
+            return
+
+        if not follow_up:
+            console.print("[dim]Conversation ended.[/dim]")
+            return
+
+        turn_n = len(prior_turns)
+        turn_started = datetime.now(timezone.utc)
+        turn_status = "errored"
+        followup_intent = Intent(
+            kind="question",
+            canonical_request=follow_up,
+            rationale=f"Follow-up #{turn_n} in ongoing conversation.",
+        )
+        gates: list[GateDecision] = []
+
+        try:
+            # Re-locate using a combined-context intent so the Locator can
+            # pick new files if the topic shifted, or stick with the old set.
+            combined = followup_intent.model_copy(
+                update={
+                    "canonical_request": (
+                        f"Previous topic: {original_intent.canonical_request}\n"
+                        f"Follow-up question: {follow_up}"
+                    )
+                }
+            )
+            console.rule(f"[bold cyan]Follow-up {turn_n}: Locate[/bold cyan]")
+            located = await locate(catalog, combined)
+            if not located.paths:
+                console.print("[yellow]No files matched the follow-up.[/yellow]")
+                turn_status = "errored"
+                continue
+            console.print(f"[bold]Located:[/bold] {', '.join(located.paths)}")
+            console.print(f"[dim]Reasoning:[/dim] {located.reasoning}")
+
+            console.rule(f"[bold cyan]Follow-up {turn_n}: Answer[/bold cyan]")
+            file_contents = {p: _read_file(repo / p) for p in located.paths}
+            answer = await answer_question(
+                followup_intent, catalog, located, file_contents,
+                prior_turns=prior_turns,
+            )
+            console.print(
+                Panel(answer.body, title="[bold green]Answer[/bold green]", border_style="green")
+            )
+            if answer.cited_files:
+                console.print(f"[dim]Cited:[/dim] {', '.join(answer.cited_files)}")
+
+            prior_turns.append((follow_up, answer.body))
+            turn_status = "success"
+        finally:
+            save_run(
+                repo_path=repo,
+                kind="ask",
+                request=follow_up,
+                status=turn_status,
+                started_at=turn_started,
+                intent=followup_intent,
+                gates=gates,
+            )
+
+
 async def _ask_async(repo: Path, question: str, rebuild: bool) -> int:
     repo = repo.resolve()
     started_at = datetime.now(timezone.utc)
@@ -313,6 +410,11 @@ async def _ask_async(repo: Path, question: str, rebuild: bool) -> int:
         if answer.cited_files:
             console.print(f"[dim]Cited:[/dim] {', '.join(answer.cited_files)}")
         status = "success"
+
+        # ---- Optional: multi-turn follow-up loop --------------------------
+        if _can_prompt_follow_up():
+            await _follow_up_loop(repo, catalog, intent, answer)
+
         return 0
     finally:
         save_run(

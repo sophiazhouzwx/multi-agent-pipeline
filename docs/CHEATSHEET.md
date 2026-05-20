@@ -58,6 +58,14 @@ uv run python -m src.cli ask /Users/c270744/multi-agent-pipeline \
 - `e` — supply a correction; Router re-runs with your edit appended
 - `a` — abort the pipeline
 
+**After the answer prints**, you get a follow-up prompt:
+
+```
+Follow-up question (empty to finish):
+```
+
+Type a follow-up to keep the conversation going (the Answerer sees all prior Q+A so context carries over), or hit Enter to exit. Each follow-up re-runs the Locator in case your topic shifts to different files. Disabled automatically when running with `-y` or when stdin isn't a TTY (scripted runs don't hang).
+
 ---
 
 ## 3. Implementation requests — `implement` *(plan + generate ready; apply lands at Step 10)*
