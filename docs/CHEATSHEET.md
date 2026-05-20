@@ -84,9 +84,15 @@ uv run python -m src.cli implement <repo-path> "<your change request>" -y --no-r
 ```bash
 # Print a metrics summary of every run in runs.db (Step 13)
 uv run python -m src.cli report
+
+# Or browse the same data interactively (Step 15)
+uv run streamlit run dashboard/app.py
+# Opens http://localhost:8501 with three pages: Overview, Runs, Models
 ```
 
-Shows: runs by kind × status, latency p50/p95, gate confirm/edit/abort rates, per-model verdict distribution, apply pass rate.
+The CLI `report` shows: runs by kind × status, latency p50/p95, gate confirm/edit/abort rates, per-model verdict distribution, apply pass rate.
+
+The Streamlit dashboard adds: filterable run list, per-run drill-down (gate transcript, full reviews), bar/line charts of verdicts and agreement-score history.
 
 Example:
 

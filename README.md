@@ -65,6 +65,6 @@ uv run streamlit run dashboard/app.py
 
 ## Status
 
-Currently at: **Step 14 complete — `report` subcommand for metrics; adaptive model routing (Haiku/Sonnet/Opus auto-picked per request complexity). Only the Streamlit dashboard (Step 15) remains (83 tests passing).**
+Currently at: **All 15 planned steps complete.** Pipeline runs `ask` (Q&A) and `implement` (full plan→generate→verify→apply) end-to-end, with persistent catalog, SQLite storage, CLI report, and a Streamlit dashboard. 83 tests passing.
 
 See [`docs/CHEATSHEET.md`](docs/CHEATSHEET.md) for all commands.
