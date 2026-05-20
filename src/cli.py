@@ -30,6 +30,7 @@ from src.agents.generator import generate_changes  # noqa: E402
 from src.agents.locator import locate  # noqa: E402
 from src.agents.planner import plan_change  # noqa: E402
 from src.agents.router import classify_intent  # noqa: E402
+from src.apply.applier import apply_changes  # noqa: E402
 from src.catalog.indexer import index_repo, index_stats, load_catalog  # noqa: E402
 from src.hitl.gate import AUTO_CONFIRM_ENV, show_and_confirm  # noqa: E402
 from src.pipeline.verifier_panel import verify_proposal  # noqa: E402
@@ -80,6 +81,60 @@ def _format_intent(intent: Intent) -> str:
         f"[bold]Canonical request:[/bold] {intent.canonical_request}\n"
         f"[bold]Rationale:[/bold] {intent.rationale}"
     )
+
+
+def _format_unified_diff(path: str, old: str, new: str, is_new: bool) -> str:
+    """Render a colorized unified diff for one file edit."""
+    diff_lines = list(
+        difflib.unified_diff(
+            old.splitlines(),
+            new.splitlines(),
+            fromfile=f"a/{path}" if not is_new else "/dev/null",
+            tofile=f"b/{path}",
+            lineterm="",
+        )
+    )
+    colored: list[str] = []
+    for line in diff_lines:
+        if line.startswith("+++") or line.startswith("---"):
+            colored.append(f"[bold]{line}[/bold]")
+        elif line.startswith("@@"):
+            colored.append(f"[cyan]{line}[/cyan]")
+        elif line.startswith("+"):
+            colored.append(f"[green]{line}[/green]")
+        elif line.startswith("-"):
+            colored.append(f"[red]{line}[/red]")
+        else:
+            colored.append(line)
+    return "\n".join(colored) if colored else "[dim](no diff — content identical)[/dim]"
+
+
+def _format_gate3_payload(
+    proposal: ChangeProposal, existing_contents: dict[str, str]
+) -> str:
+    """Build the Gate #3 payload: per-file unified diffs + summary."""
+    blocks: list[str] = []
+    total_added = total_removed = 0
+    for edit in proposal.edits:
+        old = existing_contents.get(edit.path, "")
+        is_new = edit.path not in existing_contents
+        added, removed = _diff_stats(old, edit.new_content)
+        total_added += added
+        total_removed += removed
+        header = (
+            f"[bold]{'NEW' if is_new else 'MODIFY'}[/bold] [cyan]{edit.path}[/cyan]  "
+            f"[green]+{added}[/green]/[red]-{removed}[/red]  — {edit.rationale}"
+        )
+        diff = _format_unified_diff(edit.path, old, edit.new_content, is_new)
+        blocks.append(f"{header}\n{diff}")
+    summary = (
+        f"[bold]{len(proposal.edits)} file(s)[/bold], "
+        f"[green]+{total_added}[/green] / [red]-{total_removed}[/red] lines.\n"
+        "The Applier will: create a new branch [bold]agent/<slug>[/bold], "
+        "write these files, commit, and run [bold]pytest[/bold]. "
+        "Tests must pass or the branch is rolled back entirely."
+    )
+    return summary + "\n\n" + "\n\n".join(blocks)
 
 
 def _diff_stats(old: str, new: str) -> tuple[int, int]:
@@ -374,18 +429,62 @@ async def _implement_async(repo: Path, request: str, rebuild: bool) -> int:
             )
             return 6
 
-    # ---- Pause: Step 10 not yet wired -------------------------------------
-    console.rule("[bold green]Proposal verified[/bold green]")
+    # ---- Stage 7: Gate #3 + Apply -----------------------------------------
+    console.rule("[bold cyan]Stage 7: Apply[/bold cyan]")
+    gate_payload = _format_gate3_payload(proposal, existing_contents)
+    decision = show_and_confirm("apply", gate_payload)
+    if decision.action == "abort":
+        console.print("[red]Aborted at apply gate. Repo untouched.[/red]")
+        return 7
+    if decision.action == "edit":
+        console.print(
+            "[yellow]Edits aren't applied at Gate #3 — re-run with a refined "
+            "request to regenerate the proposal.[/yellow]"
+        )
+        console.print(f"[dim]Your note:[/dim] {decision.edited_payload}")
+        return 7
+
+    try:
+        apply_result = await apply_changes(
+            repo, proposal, intent.canonical_request
+        )
+    except ValueError as exc:
+        console.print(f"[red]Applier refused: {exc}[/red]")
+        return 7
+
+    if apply_result.rolled_back:
+        console.rule("[bold red]Rolled back[/bold red]")
+        console.print(
+            Panel(
+                f"[bold]Reason:[/bold] {apply_result.rollback_reason}\n\n"
+                f"Branch [cyan]{apply_result.branch_name}[/cyan] was created, "
+                "the files were written, tests were run — they failed, so "
+                "the branch + commit have been destroyed. Your repo is "
+                "identical to before this run.",
+                title="[bold red]Apply failed — repo state restored[/bold red]",
+                border_style="red",
+            )
+        )
+        if apply_result.test_result:
+            console.print("[dim]Test output (last 500 chars):[/dim]")
+            tail = (apply_result.test_result.stdout or apply_result.test_result.stderr)[-500:]
+            console.print(Panel(tail or "(empty)", border_style="dim"))
+        return 8
+
+    console.rule("[bold green]Applied[/bold green]")
     console.print(
         Panel(
-            f"[bold]{len(proposal.edits)} edit(s) ready to apply.[/bold]\n\n"
-            "Git-aware apply with HITL Gate #3, sandbox tests, and automatic "
-            "rollback (Step 10) is not yet implemented.\n\n"
-            "When it lands, this point will continue automatically into the "
-            "Applier: `git checkout -b agent/<slug>`, write files, run "
-            "`pytest`, commit on success or `git reset --hard` on failure.",
-            title="[bold yellow]Pause point[/bold yellow]",
-            border_style="yellow",
+            f"[bold]Branch:[/bold] [cyan]{apply_result.branch_name}[/cyan]\n"
+            f"[bold]Commit:[/bold] [cyan]{apply_result.applied_commit[:12]}[/cyan]\n"
+            f"[bold]Tests:[/bold] passed "
+            f"(exit={apply_result.test_result.exit_code}, "
+            f"runtime={apply_result.test_result.runtime_ms} ms)\n\n"
+            f"You're on the new branch. To merge:\n"
+            f"  [dim]git checkout main && git merge {apply_result.branch_name}[/dim]\n"
+            f"To discard:\n"
+            f"  [dim]git checkout main && git branch -D {apply_result.branch_name}[/dim]",
+            title="[bold green]Apply succeeded[/bold green]",
+            border_style="green",
         )
     )
     return 0
@@ -408,12 +507,18 @@ def implement(
         False, "--no-verify", help="Skip the cross-tier verifier panel (saves 4 LLM calls)."
     ),
 ) -> None:
-    """Plan, generate, and verify a change to a repo. Today: stops after Stage 6 (Verifier).
+    """Plan, generate, verify, and apply a change to a repo.
 
-    Future (Step 10): on `approve` or `suggest` consensus, proceeds to HITL
-    Gate #3 with a unified diff preview, then the Applier writes the files
-    on a working git branch (`agent/<slug>`), runs the repo's tests in the
-    sandbox, and either commits or rolls back.
+    Full pipeline (Stages 1-7): Catalog -> Intent (Gate #1) -> Locate ->
+    Plan (Gate #2) -> Generate -> Verify -> Apply (Gate #3 + git branch +
+    tests + commit OR rollback).
+
+    On apply: a new branch `agent/<slug>-<timestamp>` is created, files are
+    written, the repo's pytest suite runs inside the sandbox. If tests pass
+    the branch keeps the commit (you stay on it). If tests fail the branch
+    + commit are destroyed and the repo is restored bit-for-bit.
+
+    Refuses on a dirty working tree. Refuses on a non-git directory.
     """
     if auto_confirm:
         os.environ[AUTO_CONFIRM_ENV] = "1"

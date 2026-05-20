@@ -91,7 +91,23 @@ What you'll see:
 4. **Stage 4 — Plan (Gate #2)** — Opus drafts a ChangePlan. Confirm/edit/abort.
 5. **Stage 5 — Generate** — Opus emits a `FileEdit` per affected file. Table of `path / status / +added / -removed / rationale`. With `--show-edits`, full new contents are printed too.
 6. **Stage 6 — Verify** — Opus + Sonnet + Haiku review the proposal in parallel; Haiku judge picks consensus. Table shows `model / verdict / confidence / reasoning` + judge reasoning. On `reject` consensus the run aborts before apply. Skip with `--no-verify`.
-7. **Pause** — git apply + sandbox tests + rollback land at Step 10.
+7. **Stage 7 — Apply (Gate #3)** — unified diff preview of every edit. On confirm: new branch `agent/<slug>-<timestamp>` created, files written, commit made, `pytest` run inside the sandbox. **Test pass:** branch keeps the commit. **Test fail:** branch + commit destroyed, repo restored to its prior state bit-for-bit.
+
+**Apply preconditions:**
+- Target must be a git repo (refuses non-git dirs)
+- Working tree must be clean (refuses on uncommitted/untracked changes)
+
+**After a successful apply:**
+```bash
+# You're on the agent branch with the commit
+git status
+
+# To merge it back into main:
+git checkout main && git merge agent/<slug>
+
+# To discard:
+git checkout main && git branch -D agent/<slug>
+```
 
 ---
 

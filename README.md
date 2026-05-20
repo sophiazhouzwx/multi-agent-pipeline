@@ -65,6 +65,6 @@ uv run streamlit run dashboard/app.py
 
 ## Status
 
-Currently at: **Step 9 complete — `implement` plans, generates, AND cross-tier verifies. Pipeline runs Stages 1-6 (catalog → intent → locate → plan → generate → verify); apply lands at Step 10 (53 tests passing).**
+Currently at: **Step 10 complete — full implement pipeline end-to-end. `implement` runs Stages 1-7 (catalog → intent → locate → plan → generate → verify → apply) with git-branch + sandbox tests + automatic rollback on test failure (63 tests passing).**
 
 See [`docs/CHEATSHEET.md`](docs/CHEATSHEET.md) for all commands.

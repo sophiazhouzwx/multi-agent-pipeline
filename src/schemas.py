@@ -194,6 +194,16 @@ class GateDecision(BaseModel):
     edited_payload: str | None = None
 
 
+class ApplyResult(BaseModel):
+    """Outcome of the Applier: branch created, tests run, commit OR rollback."""
+
+    branch_name: str
+    applied_commit: str | None = None  # commit sha on success; None if rolled back
+    test_result: ExecutionResult | None = None
+    rolled_back: bool = False
+    rollback_reason: str = ""
+
+
 class RepoRun(BaseModel):
     request: Request
     intent: Intent
