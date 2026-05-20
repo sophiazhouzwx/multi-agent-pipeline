@@ -17,6 +17,7 @@ load_dotenv()
 import asyncio  # noqa: E402
 import difflib  # noqa: E402
 import os  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 import typer  # noqa: E402
@@ -32,9 +33,18 @@ from src.agents.planner import plan_change  # noqa: E402
 from src.agents.router import classify_intent  # noqa: E402
 from src.apply.applier import apply_changes  # noqa: E402
 from src.catalog.indexer import index_repo, index_stats, load_catalog  # noqa: E402
+from src.catalog.updater import refresh_catalog_after_apply  # noqa: E402
 from src.hitl.gate import AUTO_CONFIRM_ENV, show_and_confirm  # noqa: E402
 from src.pipeline.verifier_panel import verify_proposal  # noqa: E402
-from src.schemas import ChangePlan, ChangeProposal, Intent, PanelVerdict  # noqa: E402
+from src.schemas import (  # noqa: E402
+    ApplyResult,
+    ChangePlan,
+    ChangeProposal,
+    GateDecision,
+    Intent,
+    PanelVerdict,
+)
+from src.storage.persist import save_run  # noqa: E402
 
 app = typer.Typer(
     help="Multi-agent repo-aware coding assistant",
@@ -229,62 +239,82 @@ def _read_file(path: Path) -> str:
 
 async def _ask_async(repo: Path, question: str, rebuild: bool) -> int:
     repo = repo.resolve()
+    started_at = datetime.now(timezone.utc)
+    gates: list[GateDecision] = []
+    intent: Intent | None = None
+    status = "errored"
 
-    # ---- Stage 1: catalog --------------------------------------------------
-    console.rule("[bold cyan]Stage 1: Catalog[/bold cyan]")
-    prior = load_catalog(repo)
     try:
-        catalog = await index_repo(repo, force_rebuild=rebuild)
-    except ValueError as exc:
-        console.print(f"[red]{exc}[/red]")
-        return 1
+        # ---- Stage 1: catalog ---------------------------------------------
+        console.rule("[bold cyan]Stage 1: Catalog[/bold cyan]")
+        prior = load_catalog(repo)
+        try:
+            catalog = await index_repo(repo, force_rebuild=rebuild)
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+            status = "errored"
+            return 1
 
-    stats = index_stats(prior, catalog)
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("total")
-    table.add_column("added")
-    table.add_column("modified")
-    table.add_column("unchanged")
-    table.add_row(
-        str(stats["total"]),
-        str(stats["added"]),
-        str(stats["modified"]),
-        str(stats["unchanged"]),
-    )
-    console.print(table)
+        stats = index_stats(prior, catalog)
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("total")
+        table.add_column("added")
+        table.add_column("modified")
+        table.add_column("unchanged")
+        table.add_row(
+            str(stats["total"]),
+            str(stats["added"]),
+            str(stats["modified"]),
+            str(stats["unchanged"]),
+        )
+        console.print(table)
 
-    # ---- Stage 2: intent + Gate #1 ----------------------------------------
-    console.rule("[bold cyan]Stage 2: Intent[/bold cyan]")
-    intent = await classify_intent(question)
-    decision = show_and_confirm("intent", _format_intent(intent))
-    if decision.action == "abort":
-        console.print("[red]Aborted at intent gate.[/red]")
-        return 2
-    if decision.action == "edit":
-        revised_message = f"{question}\n\nUser correction: {decision.edited_payload}"
-        intent = await classify_intent(revised_message)
-        console.print("[green]Re-classified after edit:[/green]")
-        console.print(_format_intent(intent))
+        # ---- Stage 2: intent + Gate #1 ------------------------------------
+        console.rule("[bold cyan]Stage 2: Intent[/bold cyan]")
+        intent = await classify_intent(question)
+        decision = show_and_confirm("intent", _format_intent(intent))
+        gates.append(decision)
+        if decision.action == "abort":
+            console.print("[red]Aborted at intent gate.[/red]")
+            status = "aborted_intent"
+            return 2
+        if decision.action == "edit":
+            revised_message = f"{question}\n\nUser correction: {decision.edited_payload}"
+            intent = await classify_intent(revised_message)
+            console.print("[green]Re-classified after edit:[/green]")
+            console.print(_format_intent(intent))
 
-    # ---- Stage 3: locate --------------------------------------------------
-    console.rule("[bold cyan]Stage 3: Locate[/bold cyan]")
-    located = await locate(catalog, intent)
-    if not located.paths:
-        console.print("[yellow]No files matched the request.[/yellow]")
-        return 3
-    console.print(f"[bold]Located:[/bold] {', '.join(located.paths)}")
-    console.print(f"[dim]Reasoning:[/dim] {located.reasoning}")
+        # ---- Stage 3: locate ----------------------------------------------
+        console.rule("[bold cyan]Stage 3: Locate[/bold cyan]")
+        located = await locate(catalog, intent)
+        if not located.paths:
+            console.print("[yellow]No files matched the request.[/yellow]")
+            status = "errored"
+            return 3
+        console.print(f"[bold]Located:[/bold] {', '.join(located.paths)}")
+        console.print(f"[dim]Reasoning:[/dim] {located.reasoning}")
 
-    # ---- Stage 4: answer --------------------------------------------------
-    console.rule("[bold cyan]Stage 4: Answer[/bold cyan]")
-    file_contents = {p: _read_file(repo / p) for p in located.paths}
-    answer = await answer_question(intent, catalog, located, file_contents)
-    console.print(
-        Panel(answer.body, title="[bold green]Answer[/bold green]", border_style="green")
-    )
-    if answer.cited_files:
-        console.print(f"[dim]Cited:[/dim] {', '.join(answer.cited_files)}")
-    return 0
+        # ---- Stage 4: answer ----------------------------------------------
+        console.rule("[bold cyan]Stage 4: Answer[/bold cyan]")
+        file_contents = {p: _read_file(repo / p) for p in located.paths}
+        answer = await answer_question(intent, catalog, located, file_contents)
+        console.print(
+            Panel(answer.body, title="[bold green]Answer[/bold green]", border_style="green")
+        )
+        if answer.cited_files:
+            console.print(f"[dim]Cited:[/dim] {', '.join(answer.cited_files)}")
+        status = "success"
+        return 0
+    finally:
+        save_run(
+            repo_path=repo,
+            kind="ask",
+            request=question,
+            status=status,
+            started_at=started_at,
+            intent=intent,
+            gates=gates,
+        )
 
 
 @app.command()
@@ -307,187 +337,229 @@ def ask(
 
 async def _implement_async(repo: Path, request: str, rebuild: bool) -> int:
     repo = repo.resolve()
+    started_at = datetime.now(timezone.utc)
+    gates: list[GateDecision] = []
+    intent: Intent | None = None
+    verification: PanelVerdict | None = None
+    apply_result: ApplyResult | None = None
+    status = "errored"
 
-    # ---- Stage 1: catalog --------------------------------------------------
-    console.rule("[bold cyan]Stage 1: Catalog[/bold cyan]")
-    prior = load_catalog(repo)
     try:
-        catalog = await index_repo(repo, force_rebuild=rebuild)
-    except ValueError as exc:
-        console.print(f"[red]{exc}[/red]")
-        return 1
+        # ---- Stage 1: catalog ---------------------------------------------
+        console.rule("[bold cyan]Stage 1: Catalog[/bold cyan]")
+        prior = load_catalog(repo)
+        try:
+            catalog = await index_repo(repo, force_rebuild=rebuild)
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+            status = "errored"
+            return 1
 
-    stats = index_stats(prior, catalog)
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("total")
-    table.add_column("added")
-    table.add_column("modified")
-    table.add_column("unchanged")
-    table.add_row(
-        str(stats["total"]),
-        str(stats["added"]),
-        str(stats["modified"]),
-        str(stats["unchanged"]),
-    )
-    console.print(table)
-
-    # ---- Stage 2: intent + Gate #1 ----------------------------------------
-    console.rule("[bold cyan]Stage 2: Intent[/bold cyan]")
-    intent = await classify_intent(request)
-    # User invoked `implement` — pin the kind even if Router thought it was a question.
-    if intent.kind != "implement":
-        console.print(
-            f"[yellow]Router classified as '{intent.kind}'. Forcing kind=implement "
-            "because the user invoked `implement`.[/yellow]"
+        stats = index_stats(prior, catalog)
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("total")
+        table.add_column("added")
+        table.add_column("modified")
+        table.add_column("unchanged")
+        table.add_row(
+            str(stats["total"]),
+            str(stats["added"]),
+            str(stats["modified"]),
+            str(stats["unchanged"]),
         )
-        intent = intent.model_copy(update={"kind": "implement"})
-    decision = show_and_confirm("intent", _format_intent(intent))
-    if decision.action == "abort":
-        console.print("[red]Aborted at intent gate.[/red]")
-        return 2
-    if decision.action == "edit":
-        revised = f"{request}\n\nUser correction: {decision.edited_payload}"
-        intent = await classify_intent(revised)
-        intent = intent.model_copy(update={"kind": "implement"})
-        console.print("[green]Re-classified after edit:[/green]")
-        console.print(_format_intent(intent))
+        console.print(table)
 
-    # ---- Stage 3: locate --------------------------------------------------
-    console.rule("[bold cyan]Stage 3: Locate[/bold cyan]")
-    located = await locate(catalog, intent)
-    if not located.paths:
-        console.print("[yellow]No files matched the request.[/yellow]")
-        return 3
-    console.print(f"[bold]Located:[/bold] {', '.join(located.paths)}")
-    console.print(f"[dim]Reasoning:[/dim] {located.reasoning}")
+        # ---- Stage 2: intent + Gate #1 ------------------------------------
+        console.rule("[bold cyan]Stage 2: Intent[/bold cyan]")
+        intent = await classify_intent(request)
+        # User invoked `implement` — pin the kind even if Router thought it was a question.
+        if intent.kind != "implement":
+            console.print(
+                f"[yellow]Router classified as '{intent.kind}'. Forcing kind=implement "
+                "because the user invoked `implement`.[/yellow]"
+            )
+            intent = intent.model_copy(update={"kind": "implement"})
+        decision = show_and_confirm("intent", _format_intent(intent))
+        gates.append(decision)
+        if decision.action == "abort":
+            console.print("[red]Aborted at intent gate.[/red]")
+            status = "aborted_intent"
+            return 2
+        if decision.action == "edit":
+            revised = f"{request}\n\nUser correction: {decision.edited_payload}"
+            intent = await classify_intent(revised)
+            intent = intent.model_copy(update={"kind": "implement"})
+            console.print("[green]Re-classified after edit:[/green]")
+            console.print(_format_intent(intent))
 
-    # ---- Stage 4: plan + Gate #2 ------------------------------------------
-    console.rule("[bold cyan]Stage 4: Plan[/bold cyan]")
-    file_contents = {p: _read_file(repo / p) for p in located.paths}
-    plan = await plan_change(intent, located, file_contents)
-    decision = show_and_confirm("plan", _format_plan(plan))
-    if decision.action == "abort":
-        console.print("[red]Aborted at plan gate.[/red]")
-        return 4
-    if decision.action == "edit":
-        # Re-run planner with the user's correction appended to the intent.
-        revised_intent = intent.model_copy(
-            update={
-                "canonical_request": (
-                    f"{intent.canonical_request}\n\n"
-                    f"User correction: {decision.edited_payload}"
+        # ---- Stage 3: locate ----------------------------------------------
+        console.rule("[bold cyan]Stage 3: Locate[/bold cyan]")
+        located = await locate(catalog, intent)
+        if not located.paths:
+            console.print("[yellow]No files matched the request.[/yellow]")
+            status = "errored"
+            return 3
+        console.print(f"[bold]Located:[/bold] {', '.join(located.paths)}")
+        console.print(f"[dim]Reasoning:[/dim] {located.reasoning}")
+
+        # ---- Stage 4: plan + Gate #2 --------------------------------------
+        console.rule("[bold cyan]Stage 4: Plan[/bold cyan]")
+        file_contents = {p: _read_file(repo / p) for p in located.paths}
+        plan = await plan_change(intent, located, file_contents)
+        decision = show_and_confirm("plan", _format_plan(plan))
+        gates.append(decision)
+        if decision.action == "abort":
+            console.print("[red]Aborted at plan gate.[/red]")
+            status = "aborted_plan"
+            return 4
+        if decision.action == "edit":
+            revised_intent = intent.model_copy(
+                update={
+                    "canonical_request": (
+                        f"{intent.canonical_request}\n\n"
+                        f"User correction: {decision.edited_payload}"
+                    )
+                }
+            )
+            plan = await plan_change(revised_intent, located, file_contents)
+            console.print("[green]Re-planned after edit:[/green]")
+            console.print(_format_plan(plan))
+
+        # ---- Stage 5: generate --------------------------------------------
+        console.rule("[bold cyan]Stage 5: Generate[/bold cyan]")
+        if not plan.affected_files:
+            console.print("[yellow]Plan has no affected files — nothing to generate.[/yellow]")
+            status = "errored"
+            return 5
+        existing_contents: dict[str, str] = {}
+        for path in plan.affected_files:
+            abs_path = repo / path
+            if abs_path.exists():
+                existing_contents[path] = _read_file(abs_path)
+
+        proposal = await generate_changes(intent, plan, existing_contents)
+        if not proposal.edits:
+            console.print("[red]Generator produced no edits.[/red]")
+            status = "errored"
+            return 5
+
+        console.print(_format_proposal_table(proposal, existing_contents))
+
+        if _show_edits_flag.get(False):
+            console.rule("[dim]Full edit contents (--show-edits)[/dim]")
+            for edit in proposal.edits:
+                lang = "python" if edit.path.endswith(".py") else "text"
+                console.print(
+                    Panel(
+                        Syntax(edit.new_content, lang, theme="ansi_dark", line_numbers=True),
+                        title=f"[bold]{edit.path}[/bold] — {edit.rationale}",
+                        border_style="dim",
+                    )
                 )
-            }
-        )
-        plan = await plan_change(revised_intent, located, file_contents)
-        console.print("[green]Re-planned after edit:[/green]")
-        console.print(_format_plan(plan))
 
-    # ---- Stage 5: generate -----------------------------------------------
-    console.rule("[bold cyan]Stage 5: Generate[/bold cyan]")
-    if not plan.affected_files:
-        console.print("[yellow]Plan has no affected files — nothing to generate.[/yellow]")
-        return 5
-    # Read whatever EXISTING files the plan touches (NEW files won't exist yet).
-    existing_contents: dict[str, str] = {}
-    for path in plan.affected_files:
-        abs_path = repo / path
-        if abs_path.exists():
-            existing_contents[path] = _read_file(abs_path)
+        # ---- Stage 6: verify (cross-tier panel) ---------------------------
+        if _skip_verify_flag.get(False):
+            console.rule("[dim]Stage 6: Verify — skipped (--no-verify)[/dim]")
+        else:
+            console.rule("[bold cyan]Stage 6: Verify[/bold cyan]")
+            verification = await verify_proposal(intent, proposal, existing_contents)
+            console.print(_format_panel_verdict(verification))
+            console.print(f"[dim]Judge:[/dim] {verification.judge_reasoning}")
+            if verification.consensus_verdict == "reject":
+                console.print(
+                    "[red]Verifier panel rejected the proposal. Aborting before "
+                    "apply.[/red]"
+                )
+                status = "rejected"
+                return 6
 
-    proposal = await generate_changes(intent, plan, existing_contents)
-    if not proposal.edits:
-        console.print("[red]Generator produced no edits.[/red]")
-        return 5
+        # ---- Stage 7: Gate #3 + Apply -------------------------------------
+        console.rule("[bold cyan]Stage 7: Apply[/bold cyan]")
+        gate_payload = _format_gate3_payload(proposal, existing_contents)
+        decision = show_and_confirm("apply", gate_payload)
+        gates.append(decision)
+        if decision.action == "abort":
+            console.print("[red]Aborted at apply gate. Repo untouched.[/red]")
+            status = "aborted_apply"
+            return 7
+        if decision.action == "edit":
+            console.print(
+                "[yellow]Edits aren't applied at Gate #3 — re-run with a refined "
+                "request to regenerate the proposal.[/yellow]"
+            )
+            console.print(f"[dim]Your note:[/dim] {decision.edited_payload}")
+            status = "aborted_apply"
+            return 7
 
-    console.print(_format_proposal_table(proposal, existing_contents))
+        try:
+            apply_result = await apply_changes(
+                repo, proposal, intent.canonical_request
+            )
+        except ValueError as exc:
+            console.print(f"[red]Applier refused: {exc}[/red]")
+            status = "errored"
+            return 7
 
-    if _show_edits_flag.get(False):
-        console.rule("[dim]Full edit contents (--show-edits)[/dim]")
-        for edit in proposal.edits:
-            lang = "python" if edit.path.endswith(".py") else "text"
+        if apply_result.rolled_back:
+            console.rule("[bold red]Rolled back[/bold red]")
             console.print(
                 Panel(
-                    Syntax(edit.new_content, lang, theme="ansi_dark", line_numbers=True),
-                    title=f"[bold]{edit.path}[/bold] — {edit.rationale}",
-                    border_style="dim",
+                    f"[bold]Reason:[/bold] {apply_result.rollback_reason}\n\n"
+                    f"Branch [cyan]{apply_result.branch_name}[/cyan] was created, "
+                    "the files were written, tests were run — they failed, so "
+                    "the branch + commit have been destroyed. Your repo is "
+                    "identical to before this run.",
+                    title="[bold red]Apply failed — repo state restored[/bold red]",
+                    border_style="red",
                 )
             )
+            if apply_result.test_result:
+                console.print("[dim]Test output (last 500 chars):[/dim]")
+                tail = (apply_result.test_result.stdout or apply_result.test_result.stderr)[-500:]
+                console.print(Panel(tail or "(empty)", border_style="dim"))
+            status = "rolled_back"
+            return 8
 
-    # ---- Stage 6: verify (cross-tier panel) ------------------------------
-    if _skip_verify_flag.get(False):
-        console.rule("[dim]Stage 6: Verify — skipped (--no-verify)[/dim]")
-    else:
-        console.rule("[bold cyan]Stage 6: Verify[/bold cyan]")
-        panel_verdict = await verify_proposal(intent, proposal, existing_contents)
-        console.print(_format_panel_verdict(panel_verdict))
-        console.print(f"[dim]Judge:[/dim] {panel_verdict.judge_reasoning}")
-        if panel_verdict.consensus_verdict == "reject":
-            console.print(
-                "[red]Verifier panel rejected the proposal. Aborting before "
-                "apply.[/red]"
-            )
-            return 6
-
-    # ---- Stage 7: Gate #3 + Apply -----------------------------------------
-    console.rule("[bold cyan]Stage 7: Apply[/bold cyan]")
-    gate_payload = _format_gate3_payload(proposal, existing_contents)
-    decision = show_and_confirm("apply", gate_payload)
-    if decision.action == "abort":
-        console.print("[red]Aborted at apply gate. Repo untouched.[/red]")
-        return 7
-    if decision.action == "edit":
-        console.print(
-            "[yellow]Edits aren't applied at Gate #3 — re-run with a refined "
-            "request to regenerate the proposal.[/yellow]"
-        )
-        console.print(f"[dim]Your note:[/dim] {decision.edited_payload}")
-        return 7
-
-    try:
-        apply_result = await apply_changes(
-            repo, proposal, intent.canonical_request
-        )
-    except ValueError as exc:
-        console.print(f"[red]Applier refused: {exc}[/red]")
-        return 7
-
-    if apply_result.rolled_back:
-        console.rule("[bold red]Rolled back[/bold red]")
+        console.rule("[bold green]Applied[/bold green]")
         console.print(
             Panel(
-                f"[bold]Reason:[/bold] {apply_result.rollback_reason}\n\n"
-                f"Branch [cyan]{apply_result.branch_name}[/cyan] was created, "
-                "the files were written, tests were run — they failed, so "
-                "the branch + commit have been destroyed. Your repo is "
-                "identical to before this run.",
-                title="[bold red]Apply failed — repo state restored[/bold red]",
-                border_style="red",
+                f"[bold]Branch:[/bold] [cyan]{apply_result.branch_name}[/cyan]\n"
+                f"[bold]Commit:[/bold] [cyan]{apply_result.applied_commit[:12]}[/cyan]\n"
+                f"[bold]Tests:[/bold] passed "
+                f"(exit={apply_result.test_result.exit_code}, "
+                f"runtime={apply_result.test_result.runtime_ms} ms)\n\n"
+                f"You're on the new branch. To merge:\n"
+                f"  [dim]git checkout main && git merge {apply_result.branch_name}[/dim]\n"
+                f"To discard:\n"
+                f"  [dim]git checkout main && git branch -D {apply_result.branch_name}[/dim]",
+                title="[bold green]Apply succeeded[/bold green]",
+                border_style="green",
             )
         )
-        if apply_result.test_result:
-            console.print("[dim]Test output (last 500 chars):[/dim]")
-            tail = (apply_result.test_result.stdout or apply_result.test_result.stderr)[-500:]
-            console.print(Panel(tail or "(empty)", border_style="dim"))
-        return 8
 
-    console.rule("[bold green]Applied[/bold green]")
-    console.print(
-        Panel(
-            f"[bold]Branch:[/bold] [cyan]{apply_result.branch_name}[/cyan]\n"
-            f"[bold]Commit:[/bold] [cyan]{apply_result.applied_commit[:12]}[/cyan]\n"
-            f"[bold]Tests:[/bold] passed "
-            f"(exit={apply_result.test_result.exit_code}, "
-            f"runtime={apply_result.test_result.runtime_ms} ms)\n\n"
-            f"You're on the new branch. To merge:\n"
-            f"  [dim]git checkout main && git merge {apply_result.branch_name}[/dim]\n"
-            f"To discard:\n"
-            f"  [dim]git checkout main && git branch -D {apply_result.branch_name}[/dim]",
-            title="[bold green]Apply succeeded[/bold green]",
-            border_style="green",
+        # ---- Stage 8: catalog refresh (incremental) -----------------------
+        console.rule("[bold cyan]Stage 8: Catalog refresh[/bold cyan]")
+        refresh = await refresh_catalog_after_apply(repo)
+        console.print(
+            f"[dim]Catalog updated: "
+            f"{refresh.files_resummarized} re-summarized, "
+            f"{refresh.files_added} added, "
+            f"{refresh.files_unchanged} unchanged (of {refresh.files_total}).[/dim]"
         )
-    )
-    return 0
+        status = "success"
+        return 0
+    finally:
+        save_run(
+            repo_path=repo,
+            kind="implement",
+            request=request,
+            status=status,
+            started_at=started_at,
+            intent=intent,
+            verification=verification,
+            apply_result=apply_result,
+            gates=gates,
+        )
 
 
 @app.command()

@@ -65,6 +65,6 @@ uv run streamlit run dashboard/app.py
 
 ## Status
 
-Currently at: **Step 10 complete — full implement pipeline end-to-end. `implement` runs Stages 1-7 (catalog → intent → locate → plan → generate → verify → apply) with git-branch + sandbox tests + automatic rollback on test failure (63 tests passing).**
+Currently at: **Step 12 complete — full pipeline + post-apply catalog refresh + SQLite storage. Every `ask` and `implement` invocation persists a `RunRow` + child gate/review rows to `runs.db`, ready for Step 13 metrics queries (71 tests passing).**
 
 See [`docs/CHEATSHEET.md`](docs/CHEATSHEET.md) for all commands.
