@@ -10,6 +10,7 @@ import asyncio
 
 from pydantic_ai import Agent
 
+from src._retry import run_with_retry
 from src.config import ROUTER_MODEL
 
 
@@ -48,7 +49,10 @@ def _truncate(source: str) -> str:
 async def summarize_file(path_rel: str, source: str) -> str:
     """Return a 1-line purpose for a single file."""
     prompt = f"File: {path_rel}\n\n```\n{_truncate(source)}\n```"
-    result = await summarizer_agent.run(prompt)
+    result = await run_with_retry(
+        lambda: summarizer_agent.run(prompt),
+        label=f"summarizer ({path_rel})",
+    )
     text = (result.output or "").strip().splitlines()
     return (text[0] if text else "").strip()[:200]
 

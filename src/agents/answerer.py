@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pydantic_ai import Agent
 
+from src._retry import run_with_retry
 from src.config import GENERATOR_MODEL
 from src.schemas import Answer, Catalog, Intent, LocatedFiles
 
@@ -77,5 +78,7 @@ async def answer_question(
     parts.append(f"File excerpts:\n\n{_format_excerpts(file_contents)}")
 
     prompt = "\n".join(parts)
-    result = await answerer_agent.run(prompt)
+    result = await run_with_retry(
+        lambda: answerer_agent.run(prompt), label="answerer"
+    )
     return result.output

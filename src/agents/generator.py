@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from pydantic_ai import Agent
 
+from src._retry import run_with_retry
 from src.config import GENERATOR_MODEL, ROUTER_TIER_TO_MODEL
 from src.schemas import ChangePlan, ChangeProposal, FileEdit, Intent
 
@@ -109,7 +110,9 @@ async def generate_changes(
         f"Canonical request: {intent.canonical_request}\n\n"
         f"{_format_inputs(plan, file_contents)}"
     )
-    result = await agent.run(prompt)
+    result = await run_with_retry(
+        lambda: agent.run(prompt), label=f"generator ({model_id or 'default'})"
+    )
 
     # Defensive filter: only accept edits whose path is in the approved plan.
     allowed = set(plan.affected_files)

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from pydantic_ai import Agent
 
+from src._retry import run_with_retry
 from src.config import EVALUATOR_MODEL
 from src.schemas import Catalog, Intent, LocatedFiles
 
@@ -63,7 +64,9 @@ async def locate(catalog: Catalog, intent: Intent) -> LocatedFiles:
         f"Rationale: {intent.rationale}\n\n"
         f"Catalog ({len(catalog.files)} files):\n{_format_catalog_for_prompt(catalog)}"
     )
-    result = await locator_agent.run(prompt)
+    result = await run_with_retry(
+        lambda: locator_agent.run(prompt), label="locator"
+    )
     valid_paths = {f.path for f in catalog.files}
     filtered = [p for p in result.output.paths if p in valid_paths]
     return LocatedFiles(paths=filtered, reasoning=result.output.reasoning)

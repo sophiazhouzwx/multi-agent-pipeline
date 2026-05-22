@@ -18,6 +18,7 @@ import asyncio
 
 from pydantic_ai import Agent
 
+from src._retry import run_with_retry
 from src.agents.judge import judge
 from src.agents.verifier import make_verifier
 from src.config import VERIFIER_MODELS
@@ -96,7 +97,9 @@ async def verify_proposal(
     payload = _format_payload(intent, proposal, original_contents)
 
     async def _review(model_id: str, agent: Agent) -> ProposalReview:
-        result = await agent.run(payload)
+        result = await run_with_retry(
+            lambda: agent.run(payload), label=f"verifier ({model_id})"
+        )
         # Stamp the model_id (reviewer doesn't know its own identity).
         return result.output.model_copy(update={"model_id": model_id})
 

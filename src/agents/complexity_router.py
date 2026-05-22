@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from pydantic_ai import Agent
 
+from src._retry import run_with_retry
 from src.config import ROUTER_MODEL
 from src.schemas import Intent, TaskComplexity
 
@@ -54,5 +55,7 @@ async def classify_complexity(intent: Intent) -> TaskComplexity:
         f"Canonical request: {intent.canonical_request}\n"
         f"Rationale: {intent.rationale}"
     )
-    result = await complexity_router_agent.run(prompt)
+    result = await run_with_retry(
+        lambda: complexity_router_agent.run(prompt), label="complexity router"
+    )
     return result.output

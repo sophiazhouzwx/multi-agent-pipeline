@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pydantic_ai import Agent
 
+from src._retry import run_with_retry
 from src.config import ROUTER_MODEL
 from src.schemas import Intent
 
@@ -34,5 +35,7 @@ router_agent = Agent(
 
 async def classify_intent(user_message: str) -> Intent:
     """Return the model's typed Intent for a free-form user message."""
-    result = await router_agent.run(user_message)
+    result = await run_with_retry(
+        lambda: router_agent.run(user_message), label="intent router"
+    )
     return result.output

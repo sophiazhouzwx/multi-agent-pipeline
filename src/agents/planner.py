@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from pydantic_ai import Agent
 
+from src._retry import run_with_retry
 from src.config import GENERATOR_MODEL
 from src.schemas import ChangePlan, Intent, LocatedFiles
 
@@ -68,5 +69,7 @@ async def plan_change(
         f"Locator reasoning: {located.reasoning}\n\n"
         f"Files to consider:\n\n{_format_files_for_prompt(file_contents)}"
     )
-    result = await planner_agent.run(prompt)
+    result = await run_with_retry(
+        lambda: planner_agent.run(prompt), label="planner"
+    )
     return result.output

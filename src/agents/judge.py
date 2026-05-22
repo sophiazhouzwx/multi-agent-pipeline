@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pydantic_ai import Agent
 
+from src._retry import run_with_retry
 from src.config import JUDGE_MODEL
 from src.schemas import JudgeDecision, ProposalReview
 
@@ -67,5 +68,7 @@ async def judge(reviews: list[ProposalReview], request: str) -> JudgeDecision:
         f"Original request: {request}\n\n"
         f"Independent reviews ({len(reviews)}):\n\n{_format_reviews(reviews)}"
     )
-    result = await judge_agent.run(prompt)
+    result = await run_with_retry(
+        lambda: judge_agent.run(prompt), label="judge"
+    )
     return result.output
