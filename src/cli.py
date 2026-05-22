@@ -22,6 +22,7 @@ from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 import typer  # noqa: E402
+from pydantic_ai.exceptions import UnexpectedModelBehavior  # noqa: E402
 from rich.console import Console  # noqa: E402
 from rich.panel import Panel  # noqa: E402
 from rich.prompt import Prompt  # noqa: E402
@@ -319,10 +320,25 @@ async def _follow_up_loop(
 
             console.rule(f"[bold cyan]Follow-up {turn_n}: Answer[/bold cyan]")
             file_contents = {p: _read_file(repo / p) for p in located.paths}
-            answer = await answer_question(
-                followup_intent, catalog, located, file_contents,
-                prior_turns=prior_turns,
-            )
+            try:
+                answer = await answer_question(
+                    followup_intent, catalog, located, file_contents,
+                    prior_turns=prior_turns,
+                )
+            except UnexpectedModelBehavior as exc:
+                console.print(
+                    Panel(
+                        f"[bold]Model produced an invalid response on this turn.[/bold]\n\n"
+                        f"Reason: {exc}\n\n"
+                        f"The conversation is still alive — try a shorter / simpler "
+                        f"follow-up, or hit Enter to exit. If you're asking for code "
+                        f"changes, use [cyan]mapipe implement[/cyan] instead.",
+                        title="[bold yellow]Follow-up answer failed[/bold yellow]",
+                        border_style="yellow",
+                    )
+                )
+                turn_status = "errored"
+                continue
             console.print(
                 Panel(answer.body, title="[bold green]Answer[/bold green]", border_style="green")
             )
@@ -403,7 +419,21 @@ async def _ask_async(repo: Path, question: str, rebuild: bool) -> int:
         # ---- Stage 4: answer ----------------------------------------------
         console.rule("[bold cyan]Stage 4: Answer[/bold cyan]")
         file_contents = {p: _read_file(repo / p) for p in located.paths}
-        answer = await answer_question(intent, catalog, located, file_contents)
+        try:
+            answer = await answer_question(intent, catalog, located, file_contents)
+        except UnexpectedModelBehavior as exc:
+            console.print(
+                Panel(
+                    f"[bold]Model produced an invalid response.[/bold]\n\n"
+                    f"Reason: {exc}\n\n"
+                    f"Try rephrasing the question, or use [cyan]mapipe implement[/cyan] "
+                    f"if you actually want code changes.",
+                    title="[bold yellow]Answer failed[/bold yellow]",
+                    border_style="yellow",
+                )
+            )
+            status = "errored"
+            return 4
         console.print(
             Panel(answer.body, title="[bold green]Answer[/bold green]", border_style="green")
         )

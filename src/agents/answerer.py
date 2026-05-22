@@ -35,6 +35,10 @@ answerer_agent = Agent(
     GENERATOR_MODEL,
     output_type=Answer,
     instructions=_ANSWERER_INSTRUCTIONS,
+    # The Answerer sometimes gets long conversation histories + many file
+    # excerpts and emits an empty output. Give the model a few more chances
+    # to produce a valid Answer before raising UnexpectedModelBehavior.
+    retries=3,
 )
 
 
