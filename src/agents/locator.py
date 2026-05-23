@@ -36,6 +36,7 @@ locator_agent = Agent(
     EVALUATOR_MODEL,
     output_type=LocatedFiles,
     instructions=_LOCATOR_INSTRUCTIONS,
+    retries=3,
 )
 
 

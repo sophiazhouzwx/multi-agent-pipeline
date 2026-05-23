@@ -52,7 +52,16 @@ _GENERATOR_INSTRUCTIONS = (
 
 
 def _make_generator(model_id: str) -> Agent:
-    return Agent(model_id, output_type=list[FileEdit], instructions=_GENERATOR_INSTRUCTIONS)
+    # retries=3 — the Generator's output (list[FileEdit] with full file
+    # contents) is the largest structured output in the pipeline; the
+    # default 1 retry is not enough when the model occasionally emits
+    # invalid JSON or skips a required field.
+    return Agent(
+        model_id,
+        output_type=list[FileEdit],
+        instructions=_GENERATOR_INSTRUCTIONS,
+        retries=3,
+    )
 
 
 # One cached agent per generator tier so the adaptive router can pick the

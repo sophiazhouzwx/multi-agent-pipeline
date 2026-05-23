@@ -50,4 +50,5 @@ def make_verifier(model_id: str) -> Agent:
         model_id,
         output_type=ProposalReview,
         instructions=_VERIFIER_INSTRUCTIONS,
+        retries=3,
     )

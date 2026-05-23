@@ -41,6 +41,7 @@ judge_agent: Agent = Agent(
     JUDGE_MODEL,
     output_type=JudgeDecision,
     instructions=_JUDGE_INSTRUCTIONS,
+    retries=3,
 )
 
 

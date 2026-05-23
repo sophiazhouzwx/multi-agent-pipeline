@@ -30,6 +30,7 @@ router_agent = Agent(
     ROUTER_MODEL,
     output_type=Intent,
     instructions=_ROUTER_INSTRUCTIONS,
+    retries=3,
 )
 
 

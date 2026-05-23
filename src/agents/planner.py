@@ -47,6 +47,7 @@ planner_agent = Agent(
     GENERATOR_MODEL,
     output_type=ChangePlan,
     instructions=_PLANNER_INSTRUCTIONS,
+    retries=3,
 )
 
 

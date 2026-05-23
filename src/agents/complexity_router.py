@@ -46,6 +46,7 @@ complexity_router_agent = Agent(
     ROUTER_MODEL,
     output_type=TaskComplexity,
     instructions=_COMPLEXITY_INSTRUCTIONS,
+    retries=3,
 )
 
 
