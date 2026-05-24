@@ -1,12 +1,12 @@
 {
   "repo_path": "/Users/c270744/multi-agent-pipeline",
-  "git_commit": "41bc40e0fd30586098ebf41b029c1a717882f47f",
+  "git_commit": "350931e63c23c14c019ff9f2b919410b6b6b6aaf",
   "files": [
     {
       "path": "README.md",
-      "purpose": "Comprehensive guide and entry point for a multi-agent AI coding assistant that processes repository requests through a typed agent pipeline with human-in-the-loop gates, persistent catalog indexing, a",
+      "purpose": "Comprehensive documentation for a multi-agent coding assistant that routes repository requests through intent-based pipelines with human confirmation gates and tier-escalating LLM generation.",
       "public_symbols": [],
-      "content_hash": "7c2268cb6727f6e717117ab06cce386c4bb4a155caf2fd3484a0095120acb079"
+      "content_hash": "187e590c2cf860d2e64f23a09ea25633fa5c6081f6f5f2e2a3649289027331c7"
     },
     {
       "path": "dashboard/app.py",
@@ -32,9 +32,9 @@
     },
     {
       "path": "docs/CHEATSHEET.md",
-      "purpose": "Provides quick command reference and usage examples for running the multi-agent pipeline's ask and implement commands, plus setup, testing, and troubleshooting guidance.",
+      "purpose": "Quick-reference guide for command-line usage, setup, and workflow of the multi-agent pipeline system.",
       "public_symbols": [],
-      "content_hash": "2f41f8ffe5d0c4e57b501ff91141e398d2d3e2697fb2bed5421a9b7d952a16ab"
+      "content_hash": "f0f2bf5ca7a08534e6175351f304e9a17cae2e5eba69920cc5ae401df7c1a206"
     },
     {
       "path": "docs/PLAN-v1-coding-benchmark.md",
@@ -44,9 +44,9 @@
     },
     {
       "path": "docs/PLAN.md",
-      "purpose": "Establishes the architectural design and workflow for a multi-agent, repo-aware coding assistant that uses persistent catalog indexing and human-in-the-loop gates to safely implement changes.",
+      "purpose": "Strategic project plan documenting the multi-agent repo-aware coding assistant pipeline architecture, design decisions, and implementation roadmap with HITL gates and component responsibilities.",
       "public_symbols": [],
-      "content_hash": "418b49105e1095e1ecaee262e487e73d3732c6b56c5600ada22fcf621347e017"
+      "content_hash": "0eabe37dc352f0f406c68e476f478bae7ebe4d7d1720c79763e861f80e2bb677"
     },
     {
       "path": "pyproject.toml",
@@ -343,17 +343,17 @@
     },
     {
       "path": "src/cli.py",
-      "purpose": "Provides the command-line interface for a multi-agent coding assistant, orchestrating the ask/implement/report pipeline with rich terminal UI, human-in-the-loop gates, and result persistence.",
+      "purpose": "Provides the Typer CLI entrypoint and interactive command handlers for the multi-agent pipeline, including the `ask` subcommand for Q&A against repositories with human-in-the-loop gates and rich termi",
       "public_symbols": [
         {
           "name": "ask",
-          "signature": "def ask(repo: Path=typer.Argument(..., exists=True, file_okay=False, help='Target git repo'), question: str=typer.Argument(..., help='Your question about the repo'), rebuild_index: bool=typer.Option(False, '--rebuild-index', help='Discard cached catalog and re-summarize every file.'), auto_confirm: bool=typer.Option(False, '--yes', '-y', help='Skip HITL gates (sets GATE_AUTO_CONFIRM=1 for this run).')) -> None",
-          "summary": "Ask a question about a repo and get an answer with file citations."
+          "signature": "def ask(repo: Path=typer.Argument(..., exists=True, file_okay=False, help='Target git repo'), question: str=typer.Argument(..., help='A question OR a change request — the router decides per turn'), rebuild_index: bool=typer.Option(False, '--rebuild-index', help='Discard cached catalog and re-summarize every file.'), auto_confirm: bool=typer.Option(False, '--yes', '-y', help='Skip HITL gates (sets GATE_AUTO_CONFIRM=1 for this run).'), show_edits: bool=typer.Option(False, '--show-edits', help='On implement turns: print full proposed file contents (verbose).'), no_verify: bool=typer.Option(False, '--no-verify', help='On implement turns: skip the cross-tier verifier panel (saves 4 LLM calls).'), no_route: bool=typer.Option(False, '--no-route', help='On implement turns: force Opus 4.6 for the generator (skip the complexity router).')) -> None",
+          "summary": "Unified Q&A + implement entrypoint."
         },
         {
           "name": "implement",
           "signature": "def implement(repo: Path=typer.Argument(..., exists=True, file_okay=False, help='Target git repo'), request: str=typer.Argument(..., help='The change you want made'), rebuild_index: bool=typer.Option(False, '--rebuild-index', help='Discard cached catalog and re-summarize every file.'), auto_confirm: bool=typer.Option(False, '--yes', '-y', help='Skip HITL gates (sets GATE_AUTO_CONFIRM=1 for this run).'), show_edits: bool=typer.Option(False, '--show-edits', help='Print full proposed file contents (verbose).'), no_verify: bool=typer.Option(False, '--no-verify', help='Skip the cross-tier verifier panel (saves 4 LLM calls).'), no_route: bool=typer.Option(False, '--no-route', help='Force Opus 4.6 for the generator (skip the complexity router).')) -> None",
-          "summary": "Plan, generate, verify, and apply a change to a repo."
+          "summary": "[DEPRECATED] Plan, generate, verify, and apply a change to a repo."
         },
         {
           "name": "report",
@@ -361,7 +361,7 @@
           "summary": "Print a summary of past runs from runs.db."
         }
       ],
-      "content_hash": "e38ea74ec2c16d8bfe0d2f1f6258f7da85aaf6a0e87aa4ed8c0ed8f84207fe9b"
+      "content_hash": "685c6ef162a0bab4decbb373623dafa3ceb724119ab2ebcfefeebee5360a6aab"
     },
     {
       "path": "src/config.py",

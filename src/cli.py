@@ -665,16 +665,26 @@ async def _run_implement_pipeline(
 
         proposal: ChangeProposal | None = None
         last_error: Exception | None = None
-        for attempt_model in tier_chain:
+        for i, attempt_model in enumerate(tier_chain):
+            # Announce each attempt up-front so the user has feedback during
+            # the long silent stretches while an Opus call is in flight.
+            if i == 0:
+                console.print(
+                    f"[dim]Generating with [cyan]{_short_model(attempt_model)}[/cyan]…[/dim]"
+                )
+            else:
+                console.print(
+                    f"[yellow]Escalating to [cyan]{_short_model(attempt_model)}[/cyan] "
+                    f"and retrying… (this can take 30-90s)[/yellow]"
+                )
             try:
                 proposal = await generate_changes(
                     intent, plan, existing_contents, model_id=attempt_model
                 )
                 if attempt_model != chosen_model:
                     console.print(
-                        f"[yellow]Generator escalated to "
-                        f"[cyan]{_short_model(attempt_model)}[/cyan] after "
-                        f"lower tier failed.[/yellow]"
+                        f"[green]Generator succeeded on "
+                        f"[cyan]{_short_model(attempt_model)}[/cyan].[/green]"
                     )
                 break
             except UnexpectedModelBehavior as exc:
