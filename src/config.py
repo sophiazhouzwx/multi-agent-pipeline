@@ -34,6 +34,15 @@ ROUTER_TIER_TO_MODEL: dict[str, str] = {
     "hard": "anthropic:claude-opus-4-6",
 }
 
+# Tier escalation: when the routed generator tier fails to produce valid
+# structured output (e.g. Haiku gives up on a long FileEdit list and emits
+# `{}`), the implement flow climbs this chain until one tier succeeds.
+ESCALATION_CHAIN: tuple[str, ...] = (
+    ROUTER_TIER_TO_MODEL["easy"],
+    ROUTER_TIER_TO_MODEL["medium"],
+    ROUTER_TIER_TO_MODEL["hard"],
+)
+
 # ---------------------------------------------------------------------------
 # Optimizer loop + sandbox.
 # ---------------------------------------------------------------------------

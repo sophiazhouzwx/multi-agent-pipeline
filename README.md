@@ -4,20 +4,24 @@ A PydanticAI multi-agent coding assistant that takes a **repo + a user request**
 
 Three Claude tiers (Opus 4.6 / Sonnet 4.6 / Haiku 4.5) play different roles via PydanticAI. The architecture is provider-agnostic — any role can be retargeted to GPT-4o or Gemini by changing one constant in `src/config.py`.
 
+`mapipe ask` is the single unified entrypoint: the Intent Router classifies **each turn** as a question or a change request and routes accordingly, so you can switch from asking to implementing in the same conversation without starting a new session.
+
 See [`docs/PLAN.md`](docs/PLAN.md) for the full design (v1 archived at `docs/PLAN-v1-coding-benchmark.md`).
 
 ## Pipeline
 
 ```
-repo + ask
-    │
-    ▼
-[Catalog ensured]  →  [Intent Router]  ─ GATE#1 ─  [Locator]
+repo + message
+      │
+      ▼
+[Catalog ensured]  →  [Intent Router]  ─ GATE#1 ─  per-turn branch
                                                        │
                                           ┌────────────┴────────────┐
                                           │                         │
                                      question:                 implement:
-                                     [Answerer]               [Planner] ─ GATE#2 ─ [Generator]
+                                     [Locator]                 [Locator]
+                                          │                         │
+                                     [Answerer]                [Planner] ─ GATE#2 ─ [Generator (tier-escalating)]
                                           │                                                │
                                           │                              [Verifier panel] ─┘
                                           │                                                │
@@ -28,8 +32,10 @@ repo + ask
                                           │                                       [Catalog updater]
                                           └─────────────────────┬──────────────────────────┘
                                                                 ▼
-                                                         runs.db (sqlite)
+                                              follow-up loop OR runs.db (sqlite)
 ```
+
+Per-turn routing means the same `mapipe ask` invocation can answer a question on turn 1, plan and apply a code change on turn 2, etc. The Generator stage auto-escalates Haiku → Sonnet → Opus when a lower tier produces invalid structured output, so cheap-tier failures don't crash the run.
 
 ## Quick start
 
@@ -39,32 +45,29 @@ uv sync                    # install dependencies
 uv run pytest tests/ -v    # unit tests (no API calls)
 ```
 
-After Step 6 (Q&A path):
+Unified entrypoint — works for both questions and change requests:
 
 ```bash
+# Q&A
 uv run python -m src.cli ask <repo-path> "where does the X logic live?"
+
+# Same command for code changes — the router auto-routes to plan→generate→verify→apply
+uv run python -m src.cli ask <repo-path> "add a --json flag to the parse command"
 ```
 
-After Step 10 (implement path with auto-apply on a working branch):
+Inside the follow-up loop you can mix freely — ask a question, then describe a change, and the next turn switches into the full implement pipeline automatically.
+
+Report and dashboard:
 
 ```bash
-uv run python -m src.cli implement <repo-path> "add a --json flag to the parse command"
+uv run python -m src.cli report                # CLI metrics summary
+uv run streamlit run dashboard/app.py          # interactive dashboard
 ```
 
-After Step 13 (report):
-
-```bash
-uv run python -m src.cli report
-```
-
-After Step 15 (dashboard):
-
-```bash
-uv run streamlit run dashboard/app.py
-```
+> **Deprecated:** `mapipe implement <repo> "<request>"` still works but prints a deprecation notice — use `mapipe ask` instead.
 
 ## Status
 
-Currently at: **All 15 planned steps complete.** Pipeline runs `ask` (Q&A) and `implement` (full plan→generate→verify→apply) end-to-end, with persistent catalog, SQLite storage, CLI report, and a Streamlit dashboard. 83 tests passing.
+Currently at: **All 15 planned steps complete**, plus a v3 unification pass that collapses `ask`/`implement` into a single auto-routing entrypoint and adds a generator tier-escalation safety net. 82 tests passing.
 
 See [`docs/CHEATSHEET.md`](docs/CHEATSHEET.md) for all commands.

@@ -10,6 +10,16 @@
 > (Opus/Sonnet/Haiku), provider-agnostic config, sandboxed execution,
 > evaluator/verifier patterns, SQLite storage, the dashboard.
 
+> **v3 update (post-Step 15):** the `ask` and `implement` subcommands are
+> unified under a single `mapipe ask` entrypoint that re-runs the Intent
+> Router on **every turn** (initial input + each follow-up) and routes to
+> Q&A or the full implement pipeline accordingly. The old `mapipe implement`
+> command still works but prints a deprecation notice. The Generator stage
+> auto-escalates Haiku → Sonnet → Opus when a lower tier produces invalid
+> structured output (`ESCALATION_CHAIN` in `src/config.py`). The branching
+> diagram below is still semantically correct — branching now happens
+> per-turn rather than per-command-invocation.
+
 ---
 
 ## Why this design

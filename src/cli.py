@@ -35,7 +35,7 @@ from src.agents.generator import generate_changes  # noqa: E402
 from src.agents.locator import locate  # noqa: E402
 from src.agents.planner import plan_change  # noqa: E402
 from src.agents.router import classify_intent  # noqa: E402
-from src.config import GENERATOR_MODEL, ROUTER_TIER_TO_MODEL  # noqa: E402
+from src.config import ESCALATION_CHAIN, GENERATOR_MODEL, ROUTER_TIER_TO_MODEL  # noqa: E402
 from src.apply.applier import apply_changes  # noqa: E402
 from src.catalog.indexer import index_repo, index_stats, load_catalog  # noqa: E402
 from src.catalog.updater import refresh_catalog_after_apply  # noqa: E402
@@ -265,9 +265,14 @@ async def _follow_up_loop(
     first_answer: Answer,
 ) -> None:
     """After the initial answer, let the user keep asking follow-ups in the
-    same conversation. Each turn re-locates (in case the topic shifts) and
-    passes prior Q/A history to the Answerer for coherence. Each turn is
-    persisted as its own ask RunRow."""
+    same conversation. Each turn:
+      1. Runs the Intent Router on the raw follow-up text.
+      2. If kind='implement', delegates to ``_run_implement_pipeline`` —
+         after a successful apply the loop ends (catalog has changed; the
+         user can start a fresh `mapipe ask` to continue).
+      3. If kind='question', re-locates (in case the topic shifted) and
+         passes prior Q/A history to the Answerer for coherence.
+    Each turn is persisted as its own RunRow."""
     prior_turns: list[tuple[str, str]] = [
         (original_intent.canonical_request, first_answer.body)
     ]
@@ -276,7 +281,7 @@ async def _follow_up_loop(
         console.print()
         try:
             follow_up = Prompt.ask(
-                "[bold cyan]Follow-up question[/bold cyan] (empty to finish)",
+                "[bold cyan]Follow-up[/bold cyan] — question or change request (empty to finish)",
                 default="",
                 show_default=False,
             ).strip()
@@ -290,18 +295,46 @@ async def _follow_up_loop(
 
         turn_n = len(prior_turns)
         turn_started = datetime.now(timezone.utc)
+
+        # Per-turn intent routing — the heart of unified ask/implement.
+        console.rule(f"[bold cyan]Follow-up {turn_n}: Intent[/bold cyan]")
+        try:
+            turn_intent = await classify_intent(follow_up)
+        except UnexpectedModelBehavior as exc:
+            console.print(f"[yellow]Intent classifier failed: {exc}[/yellow]")
+            continue
+        console.print(_format_intent(turn_intent))
+
+        # --- Implement branch: hand off to the full pipeline ---------------
+        if turn_intent.kind == "implement":
+            console.print(
+                "[yellow]Detected an implement request — switching to the "
+                "implement pipeline for this turn.[/yellow]"
+            )
+            exit_code = await _run_implement_pipeline(
+                repo, catalog, turn_intent, follow_up, turn_started
+            )
+            if exit_code == 0:
+                console.print(
+                    "[dim]Implement complete and applied. Conversation ended — "
+                    "the catalog has changed, so start a fresh `mapipe ask` "
+                    "to continue.[/dim]"
+                )
+                return
+            console.print(
+                "[dim]Implement did not complete — staying in the conversation. "
+                "Ask another question or re-request the change.[/dim]"
+            )
+            continue
+
+        # --- Question branch: existing answer flow -------------------------
         turn_status = "errored"
-        followup_intent = Intent(
-            kind="question",
-            canonical_request=follow_up,
-            rationale=f"Follow-up #{turn_n} in ongoing conversation.",
-        )
         gates: list[GateDecision] = []
 
         try:
             # Re-locate using a combined-context intent so the Locator can
             # pick new files if the topic shifted, or stick with the old set.
-            combined = followup_intent.model_copy(
+            combined = turn_intent.model_copy(
                 update={
                     "canonical_request": (
                         f"Previous topic: {original_intent.canonical_request}\n"
@@ -322,7 +355,7 @@ async def _follow_up_loop(
             file_contents = {p: _read_file(repo / p) for p in located.paths}
             try:
                 answer = await answer_question(
-                    followup_intent, catalog, located, file_contents,
+                    turn_intent, catalog, located, file_contents,
                     prior_turns=prior_turns,
                 )
             except UnexpectedModelBehavior as exc:
@@ -332,7 +365,8 @@ async def _follow_up_loop(
                         f"Reason: {exc}\n\n"
                         f"The conversation is still alive — try a shorter / simpler "
                         f"follow-up, or hit Enter to exit. If you're asking for code "
-                        f"changes, use [cyan]mapipe implement[/cyan] instead.",
+                        f"changes, rephrase as an action ('add X', 'change Y') and "
+                        f"the next turn will route to implement automatically.",
                         title="[bold yellow]Follow-up answer failed[/bold yellow]",
                         border_style="yellow",
                     )
@@ -354,17 +388,29 @@ async def _follow_up_loop(
                 request=follow_up,
                 status=turn_status,
                 started_at=turn_started,
-                intent=followup_intent,
+                intent=turn_intent,
                 gates=gates,
             )
 
 
 async def _ask_async(repo: Path, question: str, rebuild: bool) -> int:
+    """Unified per-turn-routed entrypoint.
+
+    Stage 1 (catalog) + Stage 2 (intent + Gate #1) run for every invocation.
+    After the gate the router's ``intent.kind`` decides the branch:
+      - ``question``: Stages 3-4 (locate + answer), then optional follow-up
+        loop. Each follow-up is itself classified and may switch into the
+        implement pipeline mid-conversation.
+      - ``implement``: hand off to ``_run_implement_pipeline`` (Stages 3-8).
+    Only the question branch persists a kind='ask' run row here; the
+    implement helper saves its own kind='implement' row.
+    """
     repo = repo.resolve()
     started_at = datetime.now(timezone.utc)
     gates: list[GateDecision] = []
     intent: Intent | None = None
     status = "errored"
+    delegated_to_implement = False
 
     try:
         # ---- Stage 1: catalog ---------------------------------------------
@@ -406,6 +452,17 @@ async def _ask_async(repo: Path, question: str, rebuild: bool) -> int:
             console.print("[green]Re-classified after edit:[/green]")
             console.print(_format_intent(intent))
 
+        # ---- Per-turn routing: hand off to implement pipeline if asked ----
+        if intent.kind == "implement":
+            console.print(
+                "[yellow]Router detected an implement request — switching to "
+                "the implement pipeline.[/yellow]"
+            )
+            delegated_to_implement = True
+            return await _run_implement_pipeline(
+                repo, catalog, intent, question, started_at, preceding_gates=gates
+            )
+
         # ---- Stage 3: locate ----------------------------------------------
         console.rule("[bold cyan]Stage 3: Locate[/bold cyan]")
         located = await locate(catalog, intent)
@@ -426,8 +483,9 @@ async def _ask_async(repo: Path, question: str, rebuild: bool) -> int:
                 Panel(
                     f"[bold]Model produced an invalid response.[/bold]\n\n"
                     f"Reason: {exc}\n\n"
-                    f"Try rephrasing the question, or use [cyan]mapipe implement[/cyan] "
-                    f"if you actually want code changes.",
+                    f"Try rephrasing the question. If you want code changes, "
+                    f"just say so — `mapipe ask` will auto-route into the "
+                    f"implement pipeline.",
                     title="[bold yellow]Answer failed[/bold yellow]",
                     border_style="yellow",
                 )
@@ -447,92 +505,94 @@ async def _ask_async(repo: Path, question: str, rebuild: bool) -> int:
 
         return 0
     finally:
-        save_run(
-            repo_path=repo,
-            kind="ask",
-            request=question,
-            status=status,
-            started_at=started_at,
-            intent=intent,
-            gates=gates,
-        )
+        # The implement helper saves its own kind='implement' row — don't
+        # double-record this turn as kind='ask' when we delegated.
+        if not delegated_to_implement:
+            save_run(
+                repo_path=repo,
+                kind="ask",
+                request=question,
+                status=status,
+                started_at=started_at,
+                intent=intent,
+                gates=gates,
+            )
 
 
 @app.command()
 def ask(
     repo: Path = typer.Argument(..., exists=True, file_okay=False, help="Target git repo"),
-    question: str = typer.Argument(..., help="Your question about the repo"),
+    question: str = typer.Argument(..., help="A question OR a change request — the router decides per turn"),
     rebuild_index: bool = typer.Option(
         False, "--rebuild-index", help="Discard cached catalog and re-summarize every file."
     ),
     auto_confirm: bool = typer.Option(
         False, "--yes", "-y", help="Skip HITL gates (sets GATE_AUTO_CONFIRM=1 for this run)."
     ),
+    show_edits: bool = typer.Option(
+        False, "--show-edits",
+        help="On implement turns: print full proposed file contents (verbose).",
+    ),
+    no_verify: bool = typer.Option(
+        False, "--no-verify",
+        help="On implement turns: skip the cross-tier verifier panel (saves 4 LLM calls).",
+    ),
+    no_route: bool = typer.Option(
+        False, "--no-route",
+        help="On implement turns: force Opus 4.6 for the generator (skip the complexity router).",
+    ),
 ) -> None:
-    """Ask a question about a repo and get an answer with file citations."""
+    """Unified Q&A + implement entrypoint.
+
+    Each turn (the initial input and any follow-up in the multi-turn loop)
+    is classified by the Intent Router:
+
+      - 'question' -> Locate + Answer with file citations.
+      - 'implement' -> full pipeline (Plan + Gate #2, Generate, Verify,
+        Apply + Gate #3 with git branch / tests / commit-or-rollback).
+
+    You can switch from asking to implementing in the same session without
+    re-running anything — just describe the change you want. After a
+    successful implement the catalog has changed, so the conversation ends
+    and you can start a fresh `mapipe ask` to keep going.
+
+    The --show-edits / --no-verify / --no-route flags are no-ops on
+    question turns and take effect whenever a turn routes to implement.
+    """
     if auto_confirm:
         os.environ[AUTO_CONFIRM_ENV] = "1"
+    _show_edits_flag.set(show_edits)
+    _skip_verify_flag.set(no_verify)
+    _no_route_flag.set(no_route)
     exit_code = asyncio.run(_ask_async(repo, question, rebuild_index))
     raise typer.Exit(exit_code)
 
 
-async def _implement_async(repo: Path, request: str, rebuild: bool) -> int:
-    repo = repo.resolve()
-    started_at = datetime.now(timezone.utc)
-    gates: list[GateDecision] = []
-    intent: Intent | None = None
+async def _run_implement_pipeline(
+    repo: Path,
+    catalog: Catalog,
+    intent: Intent,
+    request: str,
+    started_at: datetime,
+    *,
+    preceding_gates: list[GateDecision] | None = None,
+) -> int:
+    """Stages 3-8 of the implement pipeline (locate -> apply -> catalog refresh).
+
+    Reusable from both ``_ask_async`` (when the per-turn router detects an
+    implement intent) and ``_implement_async`` (the deprecated direct
+    entrypoint). Saves its own run row with kind='implement'.
+
+    ``preceding_gates`` carries any HITL decisions made before this helper
+    was invoked (e.g. Gate #1 in ``_ask_async``) so they appear in the
+    persisted run.
+    """
+    gates: list[GateDecision] = list(preceding_gates) if preceding_gates else []
     verification: PanelVerdict | None = None
     apply_result: ApplyResult | None = None
     status = "errored"
 
     try:
-        # ---- Stage 1: catalog ---------------------------------------------
-        console.rule("[bold cyan]Stage 1: Catalog[/bold cyan]")
-        prior = load_catalog(repo)
-        try:
-            catalog = await index_repo(repo, force_rebuild=rebuild)
-        except ValueError as exc:
-            console.print(f"[red]{exc}[/red]")
-            status = "errored"
-            return 1
-
-        stats = index_stats(prior, catalog)
-        table = Table(show_header=True, header_style="bold")
-        table.add_column("total")
-        table.add_column("added")
-        table.add_column("modified")
-        table.add_column("unchanged")
-        table.add_row(
-            str(stats["total"]),
-            str(stats["added"]),
-            str(stats["modified"]),
-            str(stats["unchanged"]),
-        )
-        console.print(table)
-
-        # ---- Stage 2: intent + Gate #1 ------------------------------------
-        console.rule("[bold cyan]Stage 2: Intent[/bold cyan]")
-        intent = await classify_intent(request)
-        # User invoked `implement` — pin the kind even if Router thought it was a question.
-        if intent.kind != "implement":
-            console.print(
-                f"[yellow]Router classified as '{intent.kind}'. Forcing kind=implement "
-                "because the user invoked `implement`.[/yellow]"
-            )
-            intent = intent.model_copy(update={"kind": "implement"})
-        decision = show_and_confirm("intent", _format_intent(intent))
-        gates.append(decision)
-        if decision.action == "abort":
-            console.print("[red]Aborted at intent gate.[/red]")
-            status = "aborted_intent"
-            return 2
-        if decision.action == "edit":
-            revised = f"{request}\n\nUser correction: {decision.edited_payload}"
-            intent = await classify_intent(revised)
-            intent = intent.model_copy(update={"kind": "implement"})
-            console.print("[green]Re-classified after edit:[/green]")
-            console.print(_format_intent(intent))
-
         # ---- Stage 3: locate ----------------------------------------------
         console.rule("[bold cyan]Stage 3: Locate[/bold cyan]")
         located = await locate(catalog, intent)
@@ -592,7 +652,53 @@ async def _implement_async(repo: Path, request: str, rebuild: bool) -> int:
             if abs_path.exists():
                 existing_contents[path] = _read_file(abs_path)
 
-        proposal = await generate_changes(intent, plan, existing_contents, model_id=chosen_model)
+        # Tier-escalation fallback: if the routed tier emits invalid
+        # structured output (Haiku sometimes returns `{}` and exhausts the
+        # agent's internal retries, raising UnexpectedModelBehavior), climb
+        # ESCALATION_CHAIN until a tier succeeds. Forced-Opus runs
+        # (--no-route) just retry once at the top tier.
+        try:
+            start_idx = ESCALATION_CHAIN.index(chosen_model)
+        except ValueError:
+            start_idx = len(ESCALATION_CHAIN) - 1
+        tier_chain = ESCALATION_CHAIN[start_idx:] or (chosen_model,)
+
+        proposal: ChangeProposal | None = None
+        last_error: Exception | None = None
+        for attempt_model in tier_chain:
+            try:
+                proposal = await generate_changes(
+                    intent, plan, existing_contents, model_id=attempt_model
+                )
+                if attempt_model != chosen_model:
+                    console.print(
+                        f"[yellow]Generator escalated to "
+                        f"[cyan]{_short_model(attempt_model)}[/cyan] after "
+                        f"lower tier failed.[/yellow]"
+                    )
+                break
+            except UnexpectedModelBehavior as exc:
+                last_error = exc
+                console.print(
+                    f"[yellow]Generator ([cyan]{_short_model(attempt_model)}[/cyan]) "
+                    f"produced invalid output: {exc}[/yellow]"
+                )
+
+        if proposal is None:
+            console.print(
+                Panel(
+                    f"All generator tiers exhausted ({', '.join(_short_model(m) for m in tier_chain)}).\n\n"
+                    f"Last error: {last_error}\n\n"
+                    f"Common cause: the plan asks for a binary file "
+                    f"(.png/.jpg/.pdf) — the Generator can only emit text. "
+                    f"Re-run and at Gate #2 edit the plan to list only the "
+                    f"source script that produces the binary.",
+                    title="[bold red]Generator failed[/bold red]",
+                    border_style="red",
+                )
+            )
+            status = "errored"
+            return 5
         if not proposal.edits:
             console.print("[red]Generator produced no edits.[/red]")
             status = "errored"
@@ -717,6 +823,87 @@ async def _implement_async(repo: Path, request: str, rebuild: bool) -> int:
         )
 
 
+async def _implement_async(repo: Path, request: str, rebuild: bool) -> int:
+    """Deprecated direct entrypoint for the implement pipeline.
+
+    Kept so the `mapipe implement` Typer command still works. Pins
+    intent.kind='implement' even when the Router disagrees (the old contract
+    callers expect), then delegates Stages 3-8 to ``_run_implement_pipeline``.
+
+    Mirrors ``_ask_async`` 's try/finally + delegated flag so a kind=
+    'implement' RunRow is persisted on Stage 1/2 failure, while successful
+    runs let the helper save its own row (no double-record).
+    """
+    repo = repo.resolve()
+    started_at = datetime.now(timezone.utc)
+    gates: list[GateDecision] = []
+    intent: Intent | None = None
+    status = "errored"
+    delegated = False
+
+    try:
+        # ---- Stage 1: catalog ---------------------------------------------
+        console.rule("[bold cyan]Stage 1: Catalog[/bold cyan]")
+        prior = load_catalog(repo)
+        try:
+            catalog = await index_repo(repo, force_rebuild=rebuild)
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+            return 1
+
+        stats = index_stats(prior, catalog)
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("total")
+        table.add_column("added")
+        table.add_column("modified")
+        table.add_column("unchanged")
+        table.add_row(
+            str(stats["total"]),
+            str(stats["added"]),
+            str(stats["modified"]),
+            str(stats["unchanged"]),
+        )
+        console.print(table)
+
+        # ---- Stage 2: intent + Gate #1 (kind pinned to implement) ---------
+        console.rule("[bold cyan]Stage 2: Intent[/bold cyan]")
+        intent = await classify_intent(request)
+        if intent.kind != "implement":
+            console.print(
+                f"[yellow]Router classified as '{intent.kind}'. Forcing kind=implement "
+                "because the user invoked `implement`.[/yellow]"
+            )
+            intent = intent.model_copy(update={"kind": "implement"})
+        decision = show_and_confirm("intent", _format_intent(intent))
+        gates.append(decision)
+        if decision.action == "abort":
+            console.print("[red]Aborted at intent gate.[/red]")
+            status = "aborted_intent"
+            return 2
+        if decision.action == "edit":
+            revised = f"{request}\n\nUser correction: {decision.edited_payload}"
+            intent = await classify_intent(revised)
+            intent = intent.model_copy(update={"kind": "implement"})
+            console.print("[green]Re-classified after edit:[/green]")
+            console.print(_format_intent(intent))
+
+        delegated = True
+        return await _run_implement_pipeline(
+            repo, catalog, intent, request, started_at, preceding_gates=gates
+        )
+    finally:
+        if not delegated:
+            save_run(
+                repo_path=repo,
+                kind="implement",
+                request=request,
+                status=status,
+                started_at=started_at,
+                intent=intent,
+                gates=gates,
+            )
+
+
 @app.command()
 def implement(
     repo: Path = typer.Argument(..., exists=True, file_okay=False, help="Target git repo"),
@@ -737,19 +924,28 @@ def implement(
         False, "--no-route", help="Force Opus 4.6 for the generator (skip the complexity router)."
     ),
 ) -> None:
-    """Plan, generate, verify, and apply a change to a repo.
+    """[DEPRECATED] Plan, generate, verify, and apply a change to a repo.
 
-    Full pipeline (Stages 1-7): Catalog -> Intent (Gate #1) -> Locate ->
-    Plan (Gate #2) -> Generate -> Verify -> Apply (Gate #3 + git branch +
-    tests + commit OR rollback).
+    Prefer `mapipe ask` — it auto-routes per turn, so the same command
+    handles both questions and change requests, and you can switch between
+    them in one conversation.
 
-    On apply: a new branch `agent/<slug>-<timestamp>` is created, files are
-    written, the repo's pytest suite runs inside the sandbox. If tests pass
-    the branch keeps the commit (you stay on it). If tests fail the branch
-    + commit are destroyed and the repo is restored bit-for-bit.
-
-    Refuses on a dirty working tree. Refuses on a non-git directory.
+    This command still works (it pins kind='implement' even if the Router
+    classifies the input as a question), but will be removed in a future
+    release.
     """
+    console.print(
+        Panel(
+            "[bold]`mapipe implement` is deprecated.[/bold]\n\n"
+            "Use [cyan]mapipe ask[/cyan] instead — it auto-routes each turn "
+            "between Q&A and the full implement pipeline (Plan -> Gate #2 -> "
+            "Generate -> Verify -> Apply -> Gate #3), and you can switch "
+            "between them in the same conversation.\n\n"
+            "Continuing with the legacy `implement` flow for now (kind pinned).",
+            title="[bold yellow]Deprecation notice[/bold yellow]",
+            border_style="yellow",
+        )
+    )
     if auto_confirm:
         os.environ[AUTO_CONFIRM_ENV] = "1"
     _show_edits_flag.set(show_edits)

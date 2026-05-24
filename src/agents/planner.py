@@ -38,6 +38,13 @@ _PLANNER_INSTRUCTIONS = (
     "scope exactly.\n"
     "- Skip test edits unless the user asked. Existing tests are run by the "
     "Applier; new tests are a separate request.\n"
+    "- affected_files must contain ONLY text/source files (anything the "
+    "Generator can emit as a UTF-8 string: .py, .md, .json, .yaml, .toml, "
+    ".html, .css, etc.). NEVER list binary outputs (.png, .jpg, .pdf, .zip, "
+    ".ico, .woff, etc.) — the Generator cannot produce binary content. For "
+    "requests that need a binary artifact, list ONLY the source script (e.g. "
+    "a .py file using matplotlib/Pillow) and mention in the relevant step "
+    "that running the script will produce the binary at the target path.\n"
     "- If the request is impossible or unclear from the provided files, set "
     "summary to explain the problem and leave affected_files / steps empty."
 )
