@@ -1,7 +1,7 @@
 # AGENT_CATALOG.md
 
-> generated 2026-05-24T19:38:32+00:00 by multi-agent-pipeline
-> repo: `/Users/c270744/multi-agent-pipeline` @ `350931e6`
+> generated 2026-05-24T23:04:11+00:00 by multi-agent-pipeline
+> repo: `/Users/c270744/multi-agent-pipeline` @ `220741c7`
 > Agents read this instead of crawling the repo. One anchor per file; only re-summarized when content changes.
 
 _60 files indexed._
@@ -262,7 +262,7 @@ tests/
 
 ### `src/cli.py`
 
-**Purpose:** Provides the Typer CLI entrypoint and interactive command handlers for the multi-agent pipeline, including the `ask` subcommand for Q&A against repositories with human-in-the-loop gates and rich termi
+**Purpose:** Provides the Typer CLI interface with the `ask` command and supporting utilities to orchestrate the multi-agent pipeline from user input through routing, planning, generation, verification, and applic
 
 **Public symbols:**
 - `def ask(repo: Path=typer.Argument(..., exists=True, file_okay=False, help='Target git repo'), question: str=typer.Argument(..., help='A question OR a change request — the router decides per turn'), rebuild_index: bool=typer.Option(False, '--rebuild-index', help='Discard cached catalog and re-summarize every file.'), auto_confirm: bool=typer.Option(False, '--yes', '-y', help='Skip HITL gates (sets GATE_AUTO_CONFIRM=1 for this run).'), show_edits: bool=typer.Option(False, '--show-edits', help='On implement turns: print full proposed file contents (verbose).'), no_verify: bool=typer.Option(False, '--no-verify', help='On implement turns: skip the cross-tier verifier panel (saves 4 LLM calls).'), no_route: bool=typer.Option(False, '--no-route', help='On implement turns: force Opus 4.6 for the generator (skip the complexity router).')) -> None` — Unified Q&A + implement entrypoint.

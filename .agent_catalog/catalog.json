@@ -1,6 +1,6 @@
 {
   "repo_path": "/Users/c270744/multi-agent-pipeline",
-  "git_commit": "350931e63c23c14c019ff9f2b919410b6b6b6aaf",
+  "git_commit": "220741c7a0e52d5a9fda53aab719f2716ca46325",
   "files": [
     {
       "path": "README.md",
@@ -343,7 +343,7 @@
     },
     {
       "path": "src/cli.py",
-      "purpose": "Provides the Typer CLI entrypoint and interactive command handlers for the multi-agent pipeline, including the `ask` subcommand for Q&A against repositories with human-in-the-loop gates and rich termi",
+      "purpose": "Provides the Typer CLI interface with the `ask` command and supporting utilities to orchestrate the multi-agent pipeline from user input through routing, planning, generation, verification, and applic",
       "public_symbols": [
         {
           "name": "ask",
@@ -361,7 +361,7 @@
           "summary": "Print a summary of past runs from runs.db."
         }
       ],
-      "content_hash": "685c6ef162a0bab4decbb373623dafa3ceb724119ab2ebcfefeebee5360a6aab"
+      "content_hash": "09a416d7caf9c9518c51342eee5b689a54c9f32a6871f9ff7a9f4b9c2f78addd"
     },
     {
       "path": "src/config.py",
